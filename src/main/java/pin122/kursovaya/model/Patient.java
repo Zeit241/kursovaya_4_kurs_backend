@@ -1,5 +1,6 @@
 package pin122.kursovaya.model;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.Data;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -18,6 +19,7 @@ public class Patient {
     private Long id;
 
     @OneToOne
+    @JsonBackReference
     @JoinColumn(name = "user_id", nullable = false, unique = true)
     private User user;
 

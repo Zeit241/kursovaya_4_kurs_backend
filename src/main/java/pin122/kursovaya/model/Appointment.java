@@ -1,6 +1,6 @@
 package pin122.kursovaya.model;
 
-
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.Data;
 import java.time.OffsetDateTime;
@@ -15,10 +15,12 @@ public class Appointment {
 
     @ManyToOne
     @JoinColumn(name = "doctor_id", nullable = false)
+    @JsonIgnoreProperties({"appointments", "specializations"})
     private Doctor doctor;
 
     @ManyToOne
     @JoinColumn(name = "patient_id", nullable = false)
+    @JsonIgnoreProperties({"user"})
     private Patient patient;
 
     private Integer roomId; // or link to Room entity if needed

@@ -1,5 +1,7 @@
 package pin122.kursovaya.model;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -18,6 +20,7 @@ public class Doctor {
     private Long id;
 
     @OneToOne
+    @JsonBackReference
     @JoinColumn(name = "user_id", nullable = false, unique = true)
     private User user;
 
@@ -38,6 +41,7 @@ public class Doctor {
     private OffsetDateTime updatedAt = OffsetDateTime.now();
 
     @OneToMany(mappedBy = "doctor", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnore
     private Set<Appointment> appointments = new HashSet<>();
 
     @OneToMany(mappedBy = "doctor", cascade = CascadeType.ALL, orphanRemoval = true)

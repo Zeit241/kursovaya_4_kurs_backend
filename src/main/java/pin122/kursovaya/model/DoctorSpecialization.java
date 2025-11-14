@@ -1,5 +1,6 @@
 package pin122.kursovaya.model;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -14,6 +15,7 @@ public class DoctorSpecialization {
     private Long id;
 
     @ManyToOne
+    @JsonBackReference
     @JoinColumn(name = "doctor_id", nullable = false)
     private Doctor doctor;
 

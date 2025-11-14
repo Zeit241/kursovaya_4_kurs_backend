@@ -20,4 +20,11 @@ public class ApiResponse<T> {
         this.status = status;
         this.data = data;
     }
+
+    // Удобный конструктор с boolean для успеха/ошибки
+    public ApiResponse(boolean success, String message, T data) {
+        this.message = message;
+        this.status = success ? 200 : 400;
+        this.data = data;
+    }
 }

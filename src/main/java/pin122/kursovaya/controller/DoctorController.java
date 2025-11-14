@@ -19,11 +19,16 @@ public class DoctorController {
     }
 
     @GetMapping({"/", ""})
-    public ResponseEntity<List<DoctorDto>> getAllDoctors(@RequestParam(name = "q", required = false) String q) {
+    public ResponseEntity<List<DoctorDto>> getAllDoctors(
+            @RequestParam(name = "q", required = false) String q,
+            @RequestParam(name = "limit", required = false) Integer limit,
+            @RequestParam(name = "offset", required = false) Integer offset,
+            @RequestParam(name = "sortBy", required = false) String sortBy,
+            @RequestParam(name = "sortOrder", required = false, defaultValue = "asc") String sortOrder) {
         if (q == null || q.trim().isEmpty()) {
-            return ResponseEntity.ok(doctorService.getAllDoctors());
+            return ResponseEntity.ok(doctorService.getAllDoctors(limit, offset, sortBy, sortOrder));
         }
-        return ResponseEntity.ok(doctorService.searchDoctors(q.trim()));
+        return ResponseEntity.ok(doctorService.searchDoctors(q.trim(), limit, offset, sortBy, sortOrder));
     }
 
     @GetMapping("/{id}")

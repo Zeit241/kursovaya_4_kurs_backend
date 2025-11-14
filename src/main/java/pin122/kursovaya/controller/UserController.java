@@ -1,14 +1,9 @@
 package pin122.kursovaya.controller;
 
-import jakarta.persistence.EntityExistsException;
 import jakarta.persistence.EntityNotFoundException;
-import jakarta.persistence.EntityResult;
-import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.*;
 import pin122.kursovaya.dto.CreateUserDto;
 import pin122.kursovaya.dto.UserDto;
@@ -29,13 +24,13 @@ public class UserController {
         this.userService = userService;
     }
 
-    @GetMapping
-    public ResponseEntity<List<User>> getAllUsers() {
+    @GetMapping({"", "/"})
+    public ResponseEntity<List<UserDto>> getAllUsers() {
         return ResponseEntity.ok(userService.getAllUsers());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+    public ResponseEntity<UserDto> getUserById(@PathVariable Long id) {
         return userService.getUserById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
@@ -53,7 +48,8 @@ public class UserController {
     @PutMapping("/{id}")
     public ResponseEntity<UserDto> updateUser(@PathVariable Long id, @Validated(OnCreate.class) @RequestBody UserDto userDetails) {
         userService.getUserById(id).orElseThrow(()->new EntityNotFoundException("User not found"));
-        return ResponseEntity.ok(new UserDto(userService.saveUser(userDetails)));
+        User savedUser = userService.saveUser(userDetails);
+        return ResponseEntity.ok(new UserDto(savedUser));
     }
 
     @DeleteMapping("/{id}")

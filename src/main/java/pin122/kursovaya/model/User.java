@@ -1,5 +1,7 @@
 package pin122.kursovaya.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.Data;
 import pin122.kursovaya.dto.UserDto;
@@ -36,9 +38,12 @@ public class User {
     private boolean active = true;
 
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
+    @JsonManagedReference
     private Patient patient;
 
+
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
+    @JsonManagedReference
     private Doctor doctor;
 
     @ManyToMany
@@ -47,6 +52,7 @@ public class User {
             joinColumns = @JoinColumn(name = "user_id"),
             inverseJoinColumns = @JoinColumn(name = "role_id")
     )
+    @JsonIgnore
     private Set<Role> roles = new HashSet<>();
 
     public User(UserDto userDto) {
