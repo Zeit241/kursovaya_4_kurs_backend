@@ -45,7 +45,15 @@ public class AuthService {
         UserDetails userDetails = userDetailsService.loadUserByUsername(loginRequest.getEmail());
         String token = jwtTokenProvider.generateToken(userDetails);
 
-        return new AuthResponse(token, loginRequest.getEmail(), "Успешный вход в систему");
+        // Получаем пользователя для извлечения роли
+        User user = userRepository.findByEmail(loginRequest.getEmail());
+        String roleCode = null;
+        if (user != null && user.getRoles() != null && !user.getRoles().isEmpty()) {
+            // Берем код первой роли
+            roleCode = user.getRoles().iterator().next().getCode();
+        }
+
+        return new AuthResponse(token, loginRequest.getEmail(), "Успешный вход в систему", roleCode);
     }
 
     public User authenticate(String email, String password) {
@@ -54,5 +62,6 @@ public class AuthService {
             return user;
         }
         return null;
+
     }
 }

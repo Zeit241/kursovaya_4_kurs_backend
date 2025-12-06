@@ -8,7 +8,6 @@ import jakarta.validation.constraints.Past;
 import lombok.Data;
 
 import java.time.LocalDate;
-import java.util.Map;
 
 @Data
 public class CreateUserWithPatientDto {
@@ -38,7 +37,5 @@ public class CreateUserWithPatientDto {
     private Short gender; // 1 = male, 2 = female
     
     private String insuranceNumber; // Опциональное поле
-    
-    private Map<String, Object> emergencyContact; // Опциональное поле
 }
 

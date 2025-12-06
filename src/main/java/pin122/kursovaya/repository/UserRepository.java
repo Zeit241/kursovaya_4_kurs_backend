@@ -13,5 +13,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("SELECT u FROM User u WHERE u.email = :email")
     User findByEmail(@Param("email") String email);
     
+    @EntityGraph(attributePaths = {"roles", "patient", "doctor", "doctor.specializations", "doctor.specializations.specialization"})
+    @Query("SELECT u FROM User u WHERE u.email = :email")
+    User findByEmailWithPatientAndDoctor(@Param("email") String email);
+    
     Optional<User> findByEmailOrPhone(String email, String phone);
 }

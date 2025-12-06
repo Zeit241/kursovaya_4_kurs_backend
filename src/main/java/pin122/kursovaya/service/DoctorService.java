@@ -15,6 +15,7 @@ import pin122.kursovaya.model.User;
 import pin122.kursovaya.repository.DoctorRepository;
 import pin122.kursovaya.repository.ReviewRepository;
 
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -260,12 +261,19 @@ public class DoctorService {
                         .toList()
                 : List.of();
 
+        // Конвертируем фото в Base64 строку
+        String photoBase64 = null;
+        if (doctor.getPhoto() != null && doctor.getPhoto().length > 0) {
+            photoBase64 = Base64.getEncoder().encodeToString(doctor.getPhoto());
+        }
+
         DoctorDto doctorDto = new DoctorDto(
                 doctor.getId(),
                 userDto,
+                doctor.getDisplayName(),
                 doctor.getBio(),
                 doctor.getExperienceYears(),
-                doctor.getPhotoUrl(),
+                photoBase64,
                 averageRating,
                 reviewCount != null ? reviewCount.intValue() : 0,
                 doctor.getCreatedAt(),

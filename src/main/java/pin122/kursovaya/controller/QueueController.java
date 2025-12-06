@@ -2,6 +2,7 @@ package pin122.kursovaya.controller;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import pin122.kursovaya.dto.QueueEntryDto;
 import pin122.kursovaya.model.QueueEntry;
 import pin122.kursovaya.service.QueueService;
 
@@ -18,19 +19,19 @@ public class QueueController {
     }
 
     @GetMapping("/doctor/{doctorId}")
-    public ResponseEntity<List<QueueEntry>> getQueueByDoctor(@PathVariable Long doctorId) {
+    public ResponseEntity<List<QueueEntryDto>> getQueueByDoctor(@PathVariable Long doctorId) {
         return ResponseEntity.ok(queueService.getQueueByDoctor(doctorId));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<QueueEntry> getById(@PathVariable Long id) {
+    public ResponseEntity<QueueEntryDto> getById(@PathVariable Long id) {
         return queueService.getQueueEntryById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping
-    public ResponseEntity<QueueEntry> addToQueue(@RequestBody QueueEntry entry) {
+    public ResponseEntity<QueueEntryDto> addToQueue(@RequestBody QueueEntry entry) {
         return ResponseEntity.ok(queueService.saveQueueEntry(entry));
     }
 

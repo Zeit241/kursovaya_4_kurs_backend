@@ -6,10 +6,13 @@ import org.springframework.validation.BindingResult;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import pin122.kursovaya.dto.CreateUserDto;
+import pin122.kursovaya.dto.CurrentUserDto;
 import pin122.kursovaya.dto.UserDto;
+import pin122.kursovaya.dto.UserStatsDto;
 import pin122.kursovaya.dto.validation.OnCreate;
 import pin122.kursovaya.model.User;
 import pin122.kursovaya.service.UserService;
+import pin122.kursovaya.utils.ApiResponse;
 
 import java.util.List;
 
@@ -27,6 +30,22 @@ public class UserController {
     @GetMapping({"", "/"})
     public ResponseEntity<List<UserDto>> getAllUsers() {
         return ResponseEntity.ok(userService.getAllUsers());
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponse<CurrentUserDto>> getCurrentUser() {
+        return userService.getCurrentUserWithIds()
+                .map(userDto -> ResponseEntity.ok(new ApiResponse<>(true, "Данные пользователя успешно получены", userDto)))
+                .orElse(ResponseEntity.status(404)
+                        .body(new ApiResponse<>(false, "Пользователь не найден", null)));
+    }
+
+    @GetMapping("/userStats")
+    public ResponseEntity<ApiResponse<UserStatsDto>> getUserStats() {
+        return userService.getUserStats()
+                .map(stats -> ResponseEntity.ok(new ApiResponse<>(true, "Статистика пользователя успешно получена", stats)))
+                .orElse(ResponseEntity.status(404)
+                        .body(new ApiResponse<>(false, "Пользователь не найден", null)));
     }
 
     @GetMapping("/{id}")

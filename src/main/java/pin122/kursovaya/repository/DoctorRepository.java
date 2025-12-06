@@ -37,4 +37,7 @@ public interface DoctorRepository extends JpaRepository<Doctor, Long> {
     
     @EntityGraph(attributePaths = {"specializations", "specializations.specialization"})
     org.springframework.data.domain.Page<Doctor> findAll(org.springframework.data.domain.Pageable pageable);
+    
+    @Query("SELECT d FROM Doctor d WHERE d.user.id = :userId")
+    java.util.Optional<Doctor> findByUserId(@Param("userId") Long userId);
 }

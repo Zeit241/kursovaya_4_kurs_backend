@@ -7,10 +7,12 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class AuthResponse {
-    private String token;
-    private String email;
+public class QueuePositionDto {
+    private Long queueEntryId;
+    private Long doctorId;
+    private Long patientId;
+    private Integer position;
+    private Boolean isNext;
     private String message;
-    private String roleCode;
 }
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonBackReference;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -14,6 +15,7 @@ import java.util.Set;
 @Data
 @Entity
 @Table(name = "doctors")
+@EqualsAndHashCode(exclude = {"user", "appointments", "specializations"})
 public class Doctor {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -24,20 +26,21 @@ public class Doctor {
     @JoinColumn(name = "user_id", nullable = false, unique = true)
     private User user;
 
-    @Column(nullable = false)
+    @Column(name = "display_name", nullable = false)
     private String displayName;
 
     private String bio;
+    
+    @Column(name = "experience_years")
     private Integer experienceYears;
-    private String photoUrl;
+    
+    @Column(name = "photo", columnDefinition = "BYTEA")
+    private byte[] photo;
 
-    @Column(columnDefinition = "jsonb")
-    private String contactInfo;
-
-    @Column(nullable = false)
+    @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
-    @Column(nullable = false)
+    @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt = OffsetDateTime.now();
 
     @OneToMany(mappedBy = "doctor", cascade = CascadeType.ALL, orphanRemoval = true)

@@ -47,7 +47,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/users/create").permitAll()
+                        .requestMatchers("/api/test/**").permitAll() // Тестовые эндпоинты без авторизации
                         .requestMatchers("/error").permitAll()
+                        .requestMatchers("/queue-websocket/**").permitAll() // WebSocket endpoint
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(exceptions -> exceptions

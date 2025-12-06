@@ -2,6 +2,7 @@ package pin122.kursovaya.dto;
 
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 
@@ -9,8 +10,8 @@ import java.time.OffsetDateTime;
 public class ScheduleDto {
     private Long id;
     private Long doctorId;
-    private Integer roomId;
-    private Short weekday; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    private Long roomId;
+    private LocalDate dateAt;
     private LocalTime startTime;
     private LocalTime endTime;
     private Integer slotDurationMinutes;
@@ -20,13 +21,13 @@ public class ScheduleDto {
     public ScheduleDto() {
     }
 
-    public ScheduleDto(Long id, Long doctorId, Integer roomId, Short weekday,
+    public ScheduleDto(Long id, Long doctorId, Long roomId, LocalDate dateAt,
                        LocalTime startTime, LocalTime endTime, Integer slotDurationMinutes,
                        OffsetDateTime createdAt, OffsetDateTime updatedAt) {
         this.id = id;
         this.doctorId = doctorId;
         this.roomId = roomId;
-        this.weekday = weekday;
+        this.dateAt = dateAt;
         this.startTime = startTime;
         this.endTime = endTime;
         this.slotDurationMinutes = slotDurationMinutes;

@@ -3,13 +3,19 @@ package pin122.kursovaya.service;
 import org.springframework.stereotype.Service;
 import pin122.kursovaya.dto.CreateUserDto;
 import pin122.kursovaya.dto.CreateUserWithPatientDto;
+import pin122.kursovaya.dto.CurrentUserDto;
 import pin122.kursovaya.dto.PatientDto;
 import pin122.kursovaya.dto.UserDto;
+import pin122.kursovaya.dto.UserStatsDto;
 import pin122.kursovaya.model.Patient;
 import pin122.kursovaya.model.User;
+import pin122.kursovaya.repository.AppointmentRepository;
+import pin122.kursovaya.repository.QueueEntryRepository;
+import pin122.kursovaya.repository.ReviewRepository;
 import pin122.kursovaya.repository.RoleRepository;
 import pin122.kursovaya.repository.UserRepository;
 import pin122.kursovaya.utils.EncryptPassword;
+import pin122.kursovaya.utils.SecurityUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -20,10 +26,19 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final AppointmentRepository appointmentRepository;
+    private final ReviewRepository reviewRepository;
+    private final QueueEntryRepository queueEntryRepository;
 
-    public UserService(UserRepository userRepository, RoleRepository roleRepository) {
+    public UserService(UserRepository userRepository, RoleRepository roleRepository,
+                       AppointmentRepository appointmentRepository,
+                       ReviewRepository reviewRepository,
+                       QueueEntryRepository queueEntryRepository) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
+        this.appointmentRepository = appointmentRepository;
+        this.reviewRepository = reviewRepository;
+        this.queueEntryRepository = queueEntryRepository;
     }
 
     public List<UserDto> getAllUsers() {
@@ -35,6 +50,20 @@ public class UserService {
     public Optional<UserDto> getUserById(Long id) {
         return userRepository.findById(id)
                 .map(UserDto::new);
+    }
+
+    public Optional<UserDto> getCurrentUser() {
+        return SecurityUtils.getCurrentUser(userRepository)
+                .map(UserDto::new);
+    }
+
+    public Optional<CurrentUserDto> getCurrentUserWithIds() {
+        Optional<String> emailOpt = SecurityUtils.getCurrentUserEmail();
+        if (emailOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        User user = userRepository.findByEmailWithPatientAndDoctor(emailOpt.get());
+        return user != null ? Optional.of(new CurrentUserDto(user)) : Optional.empty();
     }
 
     public Optional<UserDto> createUser(CreateUserDto userDto) {
@@ -75,7 +104,6 @@ public class UserService {
            
            usr.setPasswordHash(EncryptPassword.hashPassword(userDto.getPassword()));
            Patient patient = new Patient();
-           patient.setEmergencyContact(new HashMap<>());
            patient.setUser(usr);
            usr.setPatient(patient);
            // назначаем роль по умолчанию "patient"
@@ -138,9 +166,6 @@ public class UserService {
         patient.setBirthDate(dto.getBirthDate());
         patient.setGender(dto.getGender());
         patient.setInsuranceNumber(dto.getInsuranceNumber());
-        patient.setEmergencyContact(dto.getEmergencyContact() != null 
-                ? dto.getEmergencyContact() 
-                : new HashMap<>());
 
         user.setPatient(patient);
 
@@ -157,12 +182,28 @@ public class UserService {
         patientDto.setBirthDate(savedPatient.getBirthDate());
         patientDto.setGender(savedPatient.getGender());
         patientDto.setInsuranceNumber(savedPatient.getInsuranceNumber());
-        patientDto.setEmergencyContact(savedPatient.getEmergencyContact() != null 
-                ? savedPatient.getEmergencyContact().toString() 
-                : null);
         patientDto.setCreatedAt(savedPatient.getCreatedAt());
         patientDto.setUpdatedAt(savedPatient.getUpdatedAt());
 
         return Optional.of(patientDto);
+    }
+
+    public Optional<UserStatsDto> getUserStats() {
+        Optional<CurrentUserDto> currentUserOpt = getCurrentUserWithIds();
+        if (currentUserOpt.isEmpty()) {
+            return Optional.empty();
+        }
+
+        CurrentUserDto currentUser = currentUserOpt.get();
+        if (currentUser.getPatientId() == null) {
+            // Если пользователь не является пациентом, возвращаем нулевую статистику
+            return Optional.of(new UserStatsDto(0L, 0L, 0L));
+        }
+
+        Long appointmentsCount = appointmentRepository.countByPatientId(currentUser.getPatientId());
+        Long reviewsCount = reviewRepository.countByPatientId(currentUser.getPatientId());
+        Long queueEntriesCount = queueEntryRepository.countByPatientId(currentUser.getPatientId());
+
+        return Optional.of(new UserStatsDto(appointmentsCount, reviewsCount, queueEntriesCount));
     }
 }

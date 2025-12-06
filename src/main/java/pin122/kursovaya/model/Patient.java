@@ -3,12 +3,8 @@ package pin122.kursovaya.model;
 import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.Data;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
-
 import java.time.OffsetDateTime;
 import java.time.LocalDate;
-import java.util.Map;
 
 @Data
 @Entity
@@ -23,36 +19,34 @@ public class Patient {
     @JoinColumn(name = "user_id", nullable = false, unique = true)
     private User user;
 
+    @Column(name = "birth_date")
     private LocalDate birthDate;
+    
     private Short gender; // 1 = male, 2 = female
+    
+    @Column(name = "insurance_number")
     private String insuranceNumber;
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
-    private Map<String, Object> emergencyContact;
-
-    @Column(nullable = false)
+    @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
-    @Column(nullable = false)
+    @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt = OffsetDateTime.now();
 
-    public Patient(Long id, User user, LocalDate birthDate, Short gender, String insuranceNumber, Map<String, Object> emergencyContact, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public Patient(Long id, User user, LocalDate birthDate, Short gender, String insuranceNumber, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
         this.id = id;
         this.user = user;
         this.birthDate = birthDate;
         this.gender = gender;
         this.insuranceNumber = insuranceNumber;
-        this.emergencyContact = emergencyContact;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
 
-    public Patient(LocalDate birthDate, Short gender, String insuranceNumber, Map<String, Object> emergencyContact, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public Patient(LocalDate birthDate, Short gender, String insuranceNumber, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
         this.birthDate = birthDate;
         this.gender = gender;
         this.insuranceNumber = insuranceNumber;
-        this.emergencyContact = emergencyContact;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }

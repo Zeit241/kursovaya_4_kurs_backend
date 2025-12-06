@@ -1,10 +1,13 @@
 package pin122.kursovaya.controller;
 
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import pin122.kursovaya.model.Schedule;
+import pin122.kursovaya.dto.CreateScheduleRequest;
+import pin122.kursovaya.dto.ScheduleDto;
 import pin122.kursovaya.service.ScheduleService;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -18,25 +21,34 @@ public class ScheduleController {
     }
 
     @GetMapping
-    public ResponseEntity<List<Schedule>> getAll() {
+    public ResponseEntity<List<ScheduleDto>> getAll() {
         return ResponseEntity.ok(scheduleService.getAllSchedules());
     }
 
     @GetMapping("/doctor/{doctorId}")
-    public ResponseEntity<List<Schedule>> getByDoctor(@PathVariable Long doctorId) {
-        return ResponseEntity.ok(scheduleService.getSchedulesByDoctor(doctorId));
+    public ResponseEntity<List<ScheduleDto>> getByDoctor(
+            @PathVariable Long doctorId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return ResponseEntity.ok(scheduleService.getSchedulesByDoctor(doctorId, date));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Schedule> getById(@PathVariable Long id) {
+    public ResponseEntity<ScheduleDto> getById(@PathVariable Long id) {
         return scheduleService.getScheduleById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping
-    public ResponseEntity<Schedule> create(@RequestBody Schedule schedule) {
-        return ResponseEntity.ok(scheduleService.saveSchedule(schedule));
+    public ResponseEntity<ScheduleDto> create(@RequestBody CreateScheduleRequest request) {
+        if (request.getDoctor() == null || request.getDoctor().getId() == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (request.getDateAt() == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        
+        return ResponseEntity.ok(scheduleService.createSchedule(request));
     }
 
     @DeleteMapping("/{id}")
