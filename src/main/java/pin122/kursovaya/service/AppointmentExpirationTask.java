@@ -48,7 +48,7 @@ public class AppointmentExpirationTask {
 
             for (Appointment appointment : expired) {
                 try {
-                    appointmentService.updateAppointmentStatus(appointment.getId(), "no_show");
+                    appointmentService.updateAppointmentStatus(appointment.getId(), "completed");
                     logger.info("Приём ID={} помечен как 'no_show' (время окончания: {})", 
                             appointment.getId(), appointment.getEndTime());
                 } catch (Exception e) {

@@ -63,4 +63,12 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
     
     @Query("SELECT COUNT(a) FROM Appointment a WHERE a.patient.id = :patientId")
     Long countByPatientId(@Param("patientId") Long patientId);
+    
+    /**
+     * Находит все записи пациента со статусом 'scheduled'
+     */
+    @Query("SELECT a FROM Appointment a WHERE a.patient.id = :patientId " +
+           "AND a.status = 'scheduled' " +
+           "ORDER BY a.startTime ASC")
+    List<Appointment> findScheduledAppointmentsByPatient(@Param("patientId") Long patientId);
 }
