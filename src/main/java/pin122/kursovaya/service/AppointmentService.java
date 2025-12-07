@@ -1,9 +1,10 @@
 package pin122.kursovaya.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pin122.kursovaya.dto.AppointmentDto;
-import pin122.kursovaya.dto.AvailableAppointmentDto;
 import pin122.kursovaya.model.Appointment;
 import pin122.kursovaya.model.Patient;
 import pin122.kursovaya.repository.AppointmentRepository;
@@ -19,6 +20,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class AppointmentService {
+
+    private static final Logger logger = LoggerFactory.getLogger(AppointmentService.class);
 
     private final AppointmentRepository appointmentRepository;
     private final PatientRepository patientRepository;
@@ -174,14 +177,14 @@ public class AppointmentService {
         return Set.of("completed", "cancelled", "no_show").contains(status);
     }
     
-    public List<AvailableAppointmentDto> getAvailableAppointments(Long doctorId, LocalDate date) {
+    public List<AppointmentDto> getAvailableAppointments(Long doctorId, LocalDate date) {
         // Преобразуем LocalDate в OffsetDateTime для начала и конца дня
         OffsetDateTime startOfDay = date.atStartOfDay().atOffset(java.time.ZoneOffset.UTC);
         OffsetDateTime startOfNextDay = date.plusDays(1).atStartOfDay().atOffset(java.time.ZoneOffset.UTC);
         
         List<Appointment> appointments = appointmentRepository.findByDoctorIdAndDate(doctorId, startOfDay, startOfNextDay);
         return appointments.stream()
-                .map(this::mapToAvailableDto)
+                .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
     
@@ -214,22 +217,29 @@ public class AppointmentService {
         return Optional.of(mapToDto(saved));
     }
     
-    private AvailableAppointmentDto mapToAvailableDto(Appointment appointment) {
-        return new AvailableAppointmentDto(
-                appointment.getId(),
-                appointment.getSchedule() != null ? appointment.getSchedule().getId() : null,
-                appointment.getDoctor() != null ? appointment.getDoctor().getId() : null,
-                appointment.getPatient() != null ? appointment.getPatient().getId() : null,
-                appointment.getRoom() != null ? appointment.getRoom().getId() : null,
-                appointment.getStartTime(),
-                appointment.getEndTime(),
-                appointment.getPatient() != null, // isBooked = true если есть patient_id
-                appointment.getStatus(),
-                appointment.getSource()
-        );
-    }
-
     private AppointmentDto mapToDto(Appointment appointment) {
+        java.time.LocalDateTime nowLocal = java.time.LocalDateTime.now();
+        boolean hasPatient = appointment.getPatient() != null;
+        
+        // Сравниваем по локальному времени (без учёта часовых поясов)
+        // startTime из БД берём как LocalDateTime, игнорируя Z
+        boolean isPastSlot = false;
+        if (appointment.getStartTime() != null) {
+            java.time.LocalDateTime slotLocal = appointment.getStartTime().toLocalDateTime();
+            isPastSlot = slotLocal.isBefore(nowLocal);
+        }
+        
+        // isBooked = true если есть пациент ИЛИ если слот в прошлом (нельзя записаться в прошедший слот)
+        boolean isBooked = hasPatient || isPastSlot;
+        
+        logger.info("=== Appointment ID: {} ===", appointment.getId());
+        logger.info("Текущее время (nowLocal): {}", nowLocal);
+        logger.info("Время слота (startTime как LocalDateTime): {}", 
+                    appointment.getStartTime() != null ? appointment.getStartTime().toLocalDateTime() : null);
+        logger.info("Есть пациент (hasPatient): {}", hasPatient);
+        logger.info("Слот в прошлом (isPastSlot): {}", isPastSlot);
+        logger.info("Итого isBooked: {}", isBooked);
+        
         return new AppointmentDto(
                 appointment.getId(),
                 appointment.getSchedule() != null ? appointment.getSchedule().getId() : null,
@@ -238,6 +248,7 @@ public class AppointmentService {
                 appointment.getRoom() != null ? appointment.getRoom().getId() : null,
                 appointment.getStartTime(),
                 appointment.getEndTime(),
+                isBooked,
                 appointment.getStatus(),
                 appointment.getSource(),
                 appointment.getCreatedBy() != null ? appointment.getCreatedBy().getId() : null,

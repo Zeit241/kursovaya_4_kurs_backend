@@ -13,6 +13,7 @@ public class AppointmentDto {
     private Long roomId;
     private OffsetDateTime startTime;
     private OffsetDateTime endTime;
+    private Boolean isBooked;
     private String status;
     private String source;
     private Long createdBy;
@@ -24,7 +25,7 @@ public class AppointmentDto {
     public AppointmentDto() {}
 
     public AppointmentDto(Long id, Long scheduleId, Long doctorId, Long patientId, Long roomId, 
-                         OffsetDateTime startTime, OffsetDateTime endTime, String status, String source, 
+                         OffsetDateTime startTime, OffsetDateTime endTime, Boolean isBooked, String status, String source, 
                          Long createdBy, OffsetDateTime createdAt, OffsetDateTime updatedAt, String cancelReason, String diagnosis) {
         this.id = id;
         this.scheduleId = scheduleId;
@@ -33,6 +34,7 @@ public class AppointmentDto {
         this.roomId = roomId;
         this.startTime = startTime;
         this.endTime = endTime;
+        this.isBooked = isBooked;
         this.status = status;
         this.source = source;
         this.createdBy = createdBy;

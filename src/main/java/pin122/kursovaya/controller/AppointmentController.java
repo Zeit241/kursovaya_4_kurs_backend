@@ -7,7 +7,6 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import pin122.kursovaya.dto.AppointmentDto;
-import pin122.kursovaya.dto.AvailableAppointmentDto;
 import pin122.kursovaya.dto.QueueEntryDto;
 import pin122.kursovaya.model.Appointment;
 import pin122.kursovaya.model.Doctor;
@@ -89,7 +88,7 @@ public class AppointmentController {
     }
 
     @GetMapping("/available")
-    public ResponseEntity<List<AvailableAppointmentDto>> getAvailable(
+    public ResponseEntity<List<AppointmentDto>> getAvailable(
             @RequestParam Long doctorId,
             @RequestParam LocalDate date) {
         return ResponseEntity.ok(appointmentService.getAvailableAppointments(doctorId, date));
