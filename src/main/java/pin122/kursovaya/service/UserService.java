@@ -15,6 +15,7 @@ import pin122.kursovaya.repository.ReviewRepository;
 import pin122.kursovaya.repository.RoleRepository;
 import pin122.kursovaya.repository.UserRepository;
 import pin122.kursovaya.utils.EncryptPassword;
+import pin122.kursovaya.utils.FormatUtils;
 import pin122.kursovaya.utils.SecurityUtils;
 
 import java.util.List;
@@ -77,7 +78,7 @@ public class UserService {
            User usr = new User();
            String[] fio = userDto.getFio().trim().split("\\s+");
            usr.setEmail(userDto.getEmail());
-           usr.setPhone(userDto.getPhone());
+           usr.setPhone(FormatUtils.normalizePhone(userDto.getPhone()));
            
            // Гибкая обработка ФИО
            if (fio.length >= 3) {
@@ -133,7 +134,7 @@ public class UserService {
         User user = new User();
         String[] fio = dto.getFio().trim().split("\\s+");
         user.setEmail(dto.getEmail());
-        user.setPhone(dto.getPhone());
+        user.setPhone(FormatUtils.normalizePhone(dto.getPhone()));
 
         // Гибкая обработка ФИО
         if (fio.length >= 3) {
@@ -165,7 +166,7 @@ public class UserService {
         patient.setUser(user);
         patient.setBirthDate(dto.getBirthDate());
         patient.setGender(dto.getGender());
-        patient.setInsuranceNumber(dto.getInsuranceNumber());
+        patient.setInsuranceNumber(FormatUtils.normalizeInsuranceNumber(dto.getInsuranceNumber()));
 
         user.setPatient(patient);
 

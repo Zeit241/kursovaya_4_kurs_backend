@@ -91,11 +91,32 @@ public class ScheduleService {
         Doctor doctor = doctorRepository.findById(request.getDoctor().getId())
                 .orElseThrow(() -> new IllegalArgumentException("Doctor not found with id: " + request.getDoctor().getId()));
         
-        // Загружаем Room из базы данных (если указан)
+        // Загружаем или создаём Room
         Room room = null;
-        if (request.getRoom() != null && request.getRoom().getId() != null) {
-            room = roomRepository.findById(request.getRoom().getId())
-                    .orElseThrow(() -> new IllegalArgumentException("Room not found with id: " + request.getRoom().getId()));
+        if (request.getRoom() != null) {
+            if (request.getRoom().getId() != null) {
+                // Если указан ID — ищем существующий кабинет
+                room = roomRepository.findById(request.getRoom().getId())
+                        .orElseThrow(() -> new IllegalArgumentException("Room not found with id: " + request.getRoom().getId()));
+            } else if (request.getRoom().getCode() != null && !request.getRoom().getCode().isBlank()) {
+                // Если указан code без ID — ищем по code или создаём новый
+                String roomCode = request.getRoom().getCode().trim();
+                Optional<Room> existingRoom = roomRepository.findByCode(roomCode);
+                
+                if (existingRoom.isPresent()) {
+                    room = existingRoom.get();
+                    logger.info("Найден существующий кабинет по коду '{}': id={}", roomCode, room.getId());
+                } else {
+                    // Создаём новый кабинет
+                    Room newRoom = new Room();
+                    newRoom.setCode(roomCode);
+                    newRoom.setName(request.getRoom().getName() != null ? 
+                            request.getRoom().getName().trim() : "Кабинет " + roomCode);
+                    room = roomRepository.save(newRoom);
+                    logger.info("Создан новый кабинет: id={}, code='{}', name='{}'", 
+                            room.getId(), room.getCode(), room.getName());
+                }
+            }
         }
         
         // Создаем объект Schedule

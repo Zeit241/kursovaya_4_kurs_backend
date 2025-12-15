@@ -35,4 +35,8 @@ public interface QueueEntryRepository extends JpaRepository<QueueEntry, Long> {
     
     @Query("SELECT COUNT(qe) FROM QueueEntry qe WHERE qe.patient.id = :patientId")
     Long countByPatientId(@Param("patientId") Long patientId);
+    
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("DELETE FROM QueueEntry qe WHERE qe.patient.id = :patientId")
+    void deleteByPatientId(@Param("patientId") Long patientId);
 }

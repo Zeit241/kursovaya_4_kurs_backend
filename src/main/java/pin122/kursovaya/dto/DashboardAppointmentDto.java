@@ -29,3 +29,6 @@ public class DashboardAppointmentDto {
     private OffsetDateTime createdAt;
     private String diagnosis;
 }
+
+
+

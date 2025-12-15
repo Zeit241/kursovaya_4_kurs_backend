@@ -32,33 +32,13 @@ public class AppointmentExpirationTask {
      * Проверяет просроченные приёмы каждую минуту
      * Приёмы со статусом 'scheduled' или 'confirmed', у которых endTime < now()
      * автоматически получают статус 'no_show' и удаляются из очереди
+     * 
+     * ОТКЛЮЧЕНО: проверки времени, которые переводят статус приема, убраны
      */
-    @Scheduled(fixedRate = 60_000) // каждую минуту
+    // @Scheduled(fixedRate = 60_000) // каждую минуту
     public void checkExpiredAppointments() {
-        try {
-            OffsetDateTime now = OffsetDateTime.now();
-            List<Appointment> expired = appointmentRepository.findExpiredAppointments(now);
-
-            if (expired.isEmpty()) {
-                logger.debug("Нет просроченных приёмов");
-                return;
-            }
-
-            logger.info("Найдено {} просроченных приёмов", expired.size());
-
-            for (Appointment appointment : expired) {
-                try {
-                    appointmentService.updateAppointmentStatus(appointment.getId(), "completed");
-                    logger.info("Приём ID={} помечен как 'no_show' (время окончания: {})", 
-                            appointment.getId(), appointment.getEndTime());
-                } catch (Exception e) {
-                    logger.error("Ошибка при обновлении статуса приёма ID={}: {}", 
-                            appointment.getId(), e.getMessage(), e);
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Ошибка при проверке просроченных приёмов: {}", e.getMessage(), e);
-        }
+        // Проверки времени отключены - статус приема не меняется автоматически
+        return;
     }
 }
 

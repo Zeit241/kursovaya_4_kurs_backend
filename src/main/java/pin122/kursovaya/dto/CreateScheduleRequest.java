@@ -29,6 +29,9 @@ public class CreateScheduleRequest {
     @Data
     public static class RoomIdDto {
         private Long id;
+        // Поля для создания нового кабинета, если id не указан
+        private String code;
+        private String name;
     }
 }
 

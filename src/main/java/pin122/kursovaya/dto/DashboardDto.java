@@ -20,3 +20,6 @@ public class DashboardDto {
     private List<DashboardAppointmentDto> upcomingAppointments;
 }
 
+
+
+

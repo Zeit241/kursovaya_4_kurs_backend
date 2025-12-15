@@ -30,4 +30,8 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     
     @Query("SELECT COUNT(r) FROM Review r WHERE r.patient.id = :patientId")
     Long countByPatientId(@Param("patientId") Long patientId);
+    
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("DELETE FROM Review r WHERE r.patient.id = :patientId")
+    void deleteByPatientId(@Param("patientId") Long patientId);
 }

@@ -14,7 +14,7 @@ public class Patient {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @OneToOne
+    @OneToOne(fetch = FetchType.EAGER)
     @JsonBackReference
     @JoinColumn(name = "user_id", nullable = false, unique = true)
     private User user;

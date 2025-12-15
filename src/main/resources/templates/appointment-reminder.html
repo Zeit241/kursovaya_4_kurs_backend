@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Напоминание о приёме</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f7fa;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 600px; margin: 0 auto; padding: 20px;">
+        <tr>
+            <td>
+                <!-- Header -->
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px 16px 0 0; padding: 30px;">
+                    <tr>
+                        <td align="center">
+                            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;" th:text="${clinicName}">Медицинский центр</h1>
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Main Content -->
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #ffffff; padding: 40px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                    <tr>
+                        <td>
+                            <!-- Reminder Icon -->
+                            <div style="text-align: center; margin-bottom: 24px;">
+                                <div style="display: inline-block; width: 64px; height: 64px; background-color: #f59e0b; border-radius: 50%; line-height: 64px; font-size: 32px;">
+                                    ⏰
+                                </div>
+                            </div>
+
+                            <h2 style="color: #1f2937; margin: 0 0 16px; font-size: 22px; text-align: center;">
+                                Напоминание о приёме
+                            </h2>
+                            
+                            <p style="color: #6b7280; margin: 0 0 24px; font-size: 16px; text-align: center;">
+                                Уважаемый(ая) <strong th:text="${patientName}">Пациент</strong>, напоминаем вам о предстоящем приёме.
+                            </p>
+
+                            <!-- Appointment Details Card -->
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #fffbeb; border-radius: 12px; padding: 24px; margin-bottom: 24px; border: 2px solid #fcd34d;">
+                                <tr>
+                                    <td>
+                                        <table role="presentation" width="100%" cellspacing="0" cellpadding="8">
+                                            <tr>
+                                                <td style="color: #6b7280; font-size: 14px; padding-bottom: 8px;">🩺 Врач:</td>
+                                                <td style="color: #1f2937; font-size: 14px; font-weight: 600; text-align: right;" th:text="${doctorName}">Иванов И.И.</td>
+                                            </tr>
+                                            <tr th:if="${specialization != null and !specialization.isEmpty()}">
+                                                <td style="color: #6b7280; font-size: 14px; padding-bottom: 8px;">📋 Специализация:</td>
+                                                <td style="color: #1f2937; font-size: 14px; text-align: right;" th:text="${specialization}">Терапевт</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="color: #6b7280; font-size: 14px; padding-bottom: 8px;">📅 Дата:</td>
+                                                <td style="color: #92400e; font-size: 16px; font-weight: 700; text-align: right;" th:text="${appointmentDate}">1 января 2025</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="color: #6b7280; font-size: 14px; padding-bottom: 8px;">🕐 Время:</td>
+                                                <td style="color: #92400e; font-size: 16px; font-weight: 700; text-align: right;" th:text="${appointmentTime}">10:00</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="color: #6b7280; font-size: 14px;">📍 Место:</td>
+                                                <td style="color: #1f2937; font-size: 14px; text-align: right;" th:text="${roomNumber}">Кабинет 101</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Info Box -->
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+                                <tr>
+                                    <td>
+                                        <p style="color: #1e40af; margin: 0; font-size: 14px;">
+                                            💡 <strong>Не забудьте взять с собой:</strong>
+                                        </p>
+                                        <ul style="color: #1e40af; margin: 8px 0 0; padding-left: 24px; font-size: 14px;">
+                                            <li>Паспорт</li>
+                                            <li>Полис ОМС</li>
+                                            <li>Результаты предыдущих обследований (при наличии)</li>
+                                        </ul>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="color: #6b7280; margin: 0; font-size: 14px; text-align: center;">
+                                Если вы не сможете прийти, пожалуйста, отмените запись заранее.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Footer -->
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding: 24px; text-align: center;">
+                    <tr>
+                        <td>
+                            <p style="color: #9ca3af; margin: 0; font-size: 12px;">
+                                Это письмо отправлено автоматически. Пожалуйста, не отвечайте на него.
+                            </p>
+                            <p style="color: #9ca3af; margin: 8px 0 0; font-size: 12px;" th:text="${clinicName}">
+                                © Медицинский центр
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+

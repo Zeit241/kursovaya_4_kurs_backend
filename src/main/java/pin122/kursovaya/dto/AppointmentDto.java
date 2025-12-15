@@ -21,6 +21,11 @@ public class AppointmentDto {
     private OffsetDateTime updatedAt;
     private String cancelReason;
     private String diagnosis;
+    
+    // Вложенные объекты с подробной информацией
+    private PatientInfo patient;
+    private DoctorInfo doctor;
+    private RoomInfo room;
 
     public AppointmentDto() {}
 
@@ -42,5 +47,46 @@ public class AppointmentDto {
         this.updatedAt = updatedAt;
         this.cancelReason = cancelReason;
         this.diagnosis = diagnosis;
+    }
+    
+    // Вложенный класс для информации о пациенте
+    @Data
+    public static class PatientInfo {
+        private Long id;
+        private String firstName;
+        private String lastName;
+        private String middleName;
+        private String phone;
+        private String email;
+        private String birthDate;
+        private String gender;
+        private String insuranceNumber;
+        
+        public PatientInfo() {}
+    }
+    
+    // Вложенный класс для информации о враче
+    @Data
+    public static class DoctorInfo {
+        private Long id;
+        private String displayName;
+        private String firstName;
+        private String lastName;
+        private String middleName;
+        private String specialization;
+        private Integer experienceYears;
+        private String photo;
+        
+        public DoctorInfo() {}
+    }
+    
+    // Вложенный класс для информации о кабинете
+    @Data
+    public static class RoomInfo {
+        private Long id;
+        private String code;
+        private String name;
+        
+        public RoomInfo() {}
     }
 }

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Отмена записи</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f7fa;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 600px; margin: 0 auto; padding: 20px;">
+        <tr>
+            <td>
+                <!-- Header -->
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px 16px 0 0; padding: 30px;">
+                    <tr>
+                        <td align="center">
+                            <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;" th:text="${clinicName}">Медицинский центр</h1>
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Main Content -->
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #ffffff; padding: 40px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                    <tr>
+                        <td>
+                            <!-- Cancel Icon -->
+                            <div style="text-align: center; margin-bottom: 24px;">
+                                <div style="display: inline-block; width: 64px; height: 64px; background-color: #ef4444; border-radius: 50%; line-height: 64px; font-size: 32px;">
+                                    ✕
+                                </div>
+                            </div>
+
+                            <h2 style="color: #1f2937; margin: 0 0 16px; font-size: 22px; text-align: center;">
+                                Запись отменена
+                            </h2>
+                            
+                            <p style="color: #6b7280; margin: 0 0 24px; font-size: 16px; text-align: center;">
+                                Уважаемый(ая) <strong th:text="${patientName}">Пациент</strong>, ваша запись на приём была отменена.
+                            </p>
+
+                            <!-- Appointment Details Card -->
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #fef2f2; border-radius: 12px; padding: 24px; margin-bottom: 24px;">
+                                <tr>
+                                    <td>
+                                        <table role="presentation" width="100%" cellspacing="0" cellpadding="8">
+                                            <tr>
+                                                <td style="color: #6b7280; font-size: 14px; padding-bottom: 8px;">🩺 Врач:</td>
+                                                <td style="color: #1f2937; font-size: 14px; font-weight: 600; text-align: right;" th:text="${doctorName}">Иванов И.И.</td>
+                                            </tr>
+                                            <tr th:if="${specialization != null and !specialization.isEmpty()}">
+                                                <td style="color: #6b7280; font-size: 14px; padding-bottom: 8px;">📋 Специализация:</td>
+                                                <td style="color: #1f2937; font-size: 14px; text-align: right;" th:text="${specialization}">Терапевт</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="color: #6b7280; font-size: 14px; padding-bottom: 8px;">📅 Дата:</td>
+                                                <td style="color: #1f2937; font-size: 14px; text-align: right; text-decoration: line-through;" th:text="${appointmentDate}">1 января 2025</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="color: #6b7280; font-size: 14px;">🕐 Время:</td>
+                                                <td style="color: #1f2937; font-size: 14px; text-align: right; text-decoration: line-through;" th:text="${appointmentTime}">10:00</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Cancel Reason -->
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #fef3c7; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+                                <tr>
+                                    <td>
+                                        <p style="color: #92400e; margin: 0; font-size: 14px;">
+                                            <strong>Причина отмены:</strong><br>
+                                            <span th:text="${cancelReason}">Причина не указана</span>
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="color: #6b7280; margin: 0; font-size: 14px; text-align: center;">
+                                Вы можете записаться на другое удобное время в личном кабинете или связаться с нами.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+
+                <!-- Footer -->
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding: 24px; text-align: center;">
+                    <tr>
+                        <td>
+                            <p style="color: #9ca3af; margin: 0; font-size: 12px;">
+                                Это письмо отправлено автоматически. Пожалуйста, не отвечайте на него.
+                            </p>
+                            <p style="color: #9ca3af; margin: 8px 0 0; font-size: 12px;" th:text="${clinicName}">
+                                © Медицинский центр
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+

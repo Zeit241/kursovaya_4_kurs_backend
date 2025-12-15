@@ -5,14 +5,15 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
+import pin122.kursovaya.dto.AppointmentDto;
 import pin122.kursovaya.dto.QueueEntryDto;
 import pin122.kursovaya.dto.QueuePositionDto;
 import pin122.kursovaya.model.Patient;
 import pin122.kursovaya.model.User;
 import pin122.kursovaya.repository.PatientRepository;
 import pin122.kursovaya.repository.UserRepository;
+import pin122.kursovaya.service.AppointmentService;
 import pin122.kursovaya.service.RedisQueueService;
-import pin122.kursovaya.utils.SecurityUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -20,27 +21,31 @@ import java.util.Optional;
 /**
  * WebSocket контроллер для работы с электронной очередью
  * Авторизация через JWT токен при подключении
+ * Использует только Redis для хранения очередей
  */
 @Controller
 public class QueueWebSocketController {
 
     private final RedisQueueService redisQueueService;
+    private final AppointmentService appointmentService;
     private final UserRepository userRepository;
     private final PatientRepository patientRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
     public QueueWebSocketController(RedisQueueService redisQueueService,
+                                    AppointmentService appointmentService,
                                     UserRepository userRepository,
                                     PatientRepository patientRepository,
                                     SimpMessagingTemplate messagingTemplate) {
         this.redisQueueService = redisQueueService;
+        this.appointmentService = appointmentService;
         this.userRepository = userRepository;
         this.patientRepository = patientRepository;
         this.messagingTemplate = messagingTemplate;
     }
 
     /**
-     * Обработка подключения - автоматически строит очередь
+     * Обработка подключения - автоматически строит очередь на текущий день
      * Отправляется при подключении клиента
      */
     @MessageMapping("/queue/init")
@@ -82,10 +87,8 @@ public class QueueWebSocketController {
             }
 
             System.out.println("DEBUG WebSocket: Найден пациент с ID: " + patient.get().getId());
-            // Автоматически строим очередь из appointments в Redis
-            redisQueueService.buildQueueFromAppointments(patient.get().getId());
-            // Получаем все очереди пациента
-            List<QueueEntryDto> queueEntries = redisQueueService.getQueuesByPatient(patient.get().getId());
+            // Строим очередь на текущий день (только Redis)
+            List<QueueEntryDto> queueEntries = redisQueueService.buildQueueForToday(patient.get().getId());
             System.out.println("DEBUG WebSocket: Построено записей в очереди: " + queueEntries.size());
 
             messagingTemplate.convertAndSendToUser(
@@ -93,8 +96,8 @@ public class QueueWebSocketController {
                 "/queue/user",
                 new QueueInitResponse(true, 
                     queueEntries.isEmpty() 
-                        ? "Нет активных записей для построения очереди" 
-                        : "Очередь успешно построена",
+                        ? "Нет активных записей на сегодня" 
+                        : "Очередь на сегодня успешно построена",
                     queueEntries)
             );
         } catch (Exception e) {
@@ -103,6 +106,70 @@ public class QueueWebSocketController {
                 email,
                 "/queue/user",
                 new QueueInitResponse(false, "Ошибка при инициализации очереди: " + e.getMessage(), null)
+            );
+        }
+    }
+
+    /**
+     * Обновление статуса приема через WebSocket
+     * При изменении статуса очередь автоматически пересчитывается
+     */
+    @MessageMapping("/queue/status-update")
+    public void handleStatusUpdate(@Payload StatusUpdateRequest request, Authentication authentication) {
+        System.out.println("DEBUG WebSocket: handleStatusUpdate вызван для appointmentId: " + request.getAppointmentId());
+        try {
+            if (authentication == null) {
+                messagingTemplate.convertAndSendToUser(
+                    "anonymous",
+                    "/queue/user",
+                    new StatusUpdateResponse(false, "Пользователь не авторизован", null)
+                );
+                return;
+            }
+
+            String email = authentication.getName();
+            
+            // Проверяем валидность запроса
+            if (request.getAppointmentId() == null || request.getNewStatus() == null) {
+                messagingTemplate.convertAndSendToUser(
+                    email,
+                    "/queue/user",
+                    new StatusUpdateResponse(false, "Не указан appointmentId или newStatus", null)
+                );
+                return;
+            }
+
+            // Обновляем статус через AppointmentService
+            // Это автоматически пересчитает очередь и отправит уведомления
+            Optional<AppointmentDto> updated = appointmentService.updateAppointmentStatus(
+                request.getAppointmentId(), 
+                request.getNewStatus()
+            );
+
+            if (updated.isEmpty()) {
+                messagingTemplate.convertAndSendToUser(
+                    email,
+                    "/queue/user",
+                    new StatusUpdateResponse(false, "Запись не найдена", null)
+                );
+                return;
+            }
+
+            messagingTemplate.convertAndSendToUser(
+                email,
+                "/queue/user",
+                new StatusUpdateResponse(true, "Статус успешно обновлен", updated.get())
+            );
+
+            System.out.println("DEBUG WebSocket: Статус обновлен для appointmentId: " + 
+                    request.getAppointmentId() + " -> " + request.getNewStatus());
+
+        } catch (Exception e) {
+            String email = authentication != null ? authentication.getName() : "anonymous";
+            messagingTemplate.convertAndSendToUser(
+                email,
+                "/queue/user",
+                new StatusUpdateResponse(false, "Ошибка при обновлении статуса: " + e.getMessage(), null)
             );
         }
     }
@@ -320,6 +387,35 @@ public class QueueWebSocketController {
 
         public Long getDoctorId() { return doctorId; }
         public void setDoctorId(Long doctorId) { this.doctorId = doctorId; }
+    }
+
+    public static class StatusUpdateRequest {
+        private Long appointmentId;
+        private String newStatus;
+
+        public Long getAppointmentId() { return appointmentId; }
+        public void setAppointmentId(Long appointmentId) { this.appointmentId = appointmentId; }
+        public String getNewStatus() { return newStatus; }
+        public void setNewStatus(String newStatus) { this.newStatus = newStatus; }
+    }
+
+    public static class StatusUpdateResponse {
+        private boolean success;
+        private String message;
+        private AppointmentDto data;
+
+        public StatusUpdateResponse(boolean success, String message, AppointmentDto data) {
+            this.success = success;
+            this.message = message;
+            this.data = data;
+        }
+
+        public boolean isSuccess() { return success; }
+        public void setSuccess(boolean success) { this.success = success; }
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+        public AppointmentDto getData() { return data; }
+        public void setData(AppointmentDto data) { this.data = data; }
     }
 }
 
