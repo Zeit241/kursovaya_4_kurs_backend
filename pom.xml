@@ -97,6 +97,13 @@
 			<scope>test</scope>
 		</dependency>
 		
+		<!-- Spring Security Test для тестирования безопасности -->
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		
 		<!-- Apache POI для генерации Excel файлов -->
 		<dependency>
 			<groupId>org.apache.poi</groupId>

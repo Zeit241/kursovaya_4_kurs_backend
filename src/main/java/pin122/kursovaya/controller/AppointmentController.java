@@ -148,10 +148,16 @@ public class AppointmentController {
         }
         
         Appointment appointment = appointmentOpt.get();
+        String oldStatus = appointment.getStatus();
+        boolean statusChanged = false;
+        String newStatus = null;
         
         // Обновляем поля если они переданы
         if (request.containsKey("status")) {
-            String newStatus = (String) request.get("status");
+            newStatus = (String) request.get("status");
+            if (!newStatus.equals(oldStatus)) {
+                statusChanged = true;
+            }
             appointment.setStatus(newStatus);
         }
         
@@ -179,12 +185,35 @@ public class AppointmentController {
         appointment.setUpdatedAt(java.time.OffsetDateTime.now());
         Appointment saved = appointmentRepository.save(appointment);
         
+        // Если статус изменился на terminal (completed, cancelled, no_show) - удаляем из очереди
+        if (statusChanged && isTerminalStatus(newStatus) && !isTerminalStatus(oldStatus)) {
+            Long doctorId = saved.getDoctor() != null ? saved.getDoctor().getId() : null;
+            if (saved.getPatient() != null && doctorId != null) {
+                logger.info("Удаление пациента {} из очереди к врачу {} (статус: {})", 
+                    saved.getPatient().getId(), doctorId, newStatus);
+                redisQueueService.removeFromQueue(
+                    saved.getPatient().getId(),
+                    doctorId
+                );
+                // Пересчитываем очередь и отправляем WebSocket уведомления
+                redisQueueService.recalculateQueueForDoctor(doctorId);
+            }
+        }
+        
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
         response.put("message", "Запись успешно обновлена");
         response.put("appointment", appointmentService.getAppointmentById(saved.getId()).orElse(null));
         
         return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * Проверяет, является ли статус terminal (завершающим)
+     * Terminal статусы: completed, cancelled, no_show
+     */
+    private boolean isTerminalStatus(String status) {
+        return status != null && java.util.Set.of("completed", "cancelled", "no_show").contains(status);
     }
 
     @DeleteMapping("/{id}")

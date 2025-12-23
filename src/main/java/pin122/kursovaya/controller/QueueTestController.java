@@ -245,8 +245,9 @@ public class QueueTestController {
         }
         
         // Получаем других пациентов для создания очереди
+        Long finalPatientId = patientId;
         List<Patient> otherPatients = patientRepository.findAll().stream()
-                .filter(p -> !p.getId().equals(patientId))
+                .filter(p -> !p.getId().equals(finalPatientId))
                 .toList();
         
         int totalPatientsNeeded = patientsBefore + patientsAfter;
