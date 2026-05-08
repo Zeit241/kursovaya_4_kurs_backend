@@ -8,18 +8,30 @@ import pin122.kursovaya.repository.RoomRepository;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * REST-контроллер кабинетов (помещений приёма): список, создание, обновление, удаление.
+ * <p>
+ * Базовый путь: {@code /api/rooms}.
+ *
+ * @see RoomRepository
+ */
 @RestController
 @RequestMapping("/api/rooms")
 public class RoomController {
 
     private final RoomRepository roomRepository;
 
+    /**
+     * @param roomRepository репозиторий сущностей {@link Room}
+     */
     public RoomController(RoomRepository roomRepository) {
         this.roomRepository = roomRepository;
     }
 
     /**
-     * Получить все кабинеты
+     * Возвращает все кабинеты из БД.
+     *
+     * @return HTTP 200 и список {@link Room}
      */
     @GetMapping
     public ResponseEntity<List<Room>> getAll() {
@@ -27,7 +39,10 @@ public class RoomController {
     }
 
     /**
-     * Получить кабинет по ID
+     * Возвращает кабинет по идентификатору.
+     *
+     * @param id первичный ключ кабинета
+     * @return HTTP 200 и сущность или HTTP 404
      */
     @GetMapping("/{id}")
     public ResponseEntity<Room> getById(@PathVariable Long id) {
@@ -37,7 +52,10 @@ public class RoomController {
     }
 
     /**
-     * Создать новый кабинет
+     * Создаёт кабинет с обязательным непустым уникальным кодом.
+     *
+     * @param room данные кабинета (код обязателен)
+     * @return HTTP 200 и сохранённая сущность или HTTP 400 с телом {@code { "error": "..." }}
      */
     @PostMapping
     public ResponseEntity<?> create(@RequestBody Room room) {
@@ -60,7 +78,12 @@ public class RoomController {
     }
 
     /**
-     * Обновить кабинет
+     * Обновляет код и/или название кабинета; код не должен совпадать с другим кабинетом.
+     *
+     * @param id   идентификатор кабинета
+     * @param room поля для обновления
+     * @return HTTP 200 и сохранённая сущность, HTTP 404 если кабинет не найден
+     * @apiNote При занятом коде другим кабинетом выбрасывается {@link IllegalArgumentException} из лямбды обновления.
      */
     @PutMapping("/{id}")
     public ResponseEntity<?> update(@PathVariable Long id, @RequestBody Room room) {
@@ -84,7 +107,10 @@ public class RoomController {
     }
 
     /**
-     * Удалить кабинет
+     * Удаляет кабинет по идентификатору.
+     *
+     * @param id идентификатор кабинета
+     * @return HTTP 204 при успехе или HTTP 404, если записи нет
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
@@ -95,6 +121,9 @@ public class RoomController {
         return ResponseEntity.noContent().build();
     }
 }
+
+
+
 
 
 

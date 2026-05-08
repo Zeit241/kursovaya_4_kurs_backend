@@ -12,6 +12,7 @@ import pin122.kursovaya.dto.AppointmentDto;
 import pin122.kursovaya.model.*;
 import pin122.kursovaya.repository.AppointmentRepository;
 import pin122.kursovaya.repository.PatientRepository;
+import pin122.kursovaya.repository.ServiceRepository;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -36,6 +37,9 @@ class AppointmentServiceTest {
 
     @Mock
     private PatientRepository patientRepository;
+
+    @Mock
+    private ServiceRepository serviceRepository;
 
     @Mock
     private RedisQueueService redisQueueService;
@@ -64,7 +68,6 @@ class AppointmentServiceTest {
         testDoctor = new Doctor();
         testDoctor.setId(1L);
         testDoctor.setUser(doctorUser);
-        testDoctor.setDisplayName("Д-р Докторов");
         testDoctor.setExperienceYears(10);
 
         // Создаём тестового пациента

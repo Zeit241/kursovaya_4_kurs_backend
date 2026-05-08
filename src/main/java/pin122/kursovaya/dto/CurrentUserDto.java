@@ -7,10 +7,14 @@ import pin122.kursovaya.model.User;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.util.Base64;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import pin122.kursovaya.utils.DoctorPhotoUrls;
+
+/**
+ * DTO «текущего пользователя» для REST (в т.ч. {@code GET /api/users/me}): контакты, флаги активности, вложенные профили пациента и врача при их наличии.
+ */
 @Data
 public class CurrentUserDto {
     private Long id;
@@ -30,6 +34,9 @@ public class CurrentUserDto {
     public CurrentUserDto() {
     }
 
+    /**
+     * @param user сущность пользователя; при наличии связанных {@link Patient} и {@link Doctor} заполняются {@code patientId}/{@code doctorId} и вложенные DTO
+     */
     public CurrentUserDto(User user) {
         this.id = user.getId();
         this.email = user.getEmail();
@@ -53,13 +60,16 @@ public class CurrentUserDto {
         Doctor doctor = user.getDoctor();
         if (doctor != null) {
             this.doctorId = doctor.getId();
-            this.doctor = new DoctorInfo(doctor);
+            this.doctor = new DoctorInfo(doctor, DoctorPhotoUrls.resolveConfiguredPublicBase());
         } else {
             this.doctorId = null;
             this.doctor = null;
         }
     }
 
+    /**
+     * Вложенный DTO профиля пациента в составе ответа о текущем пользователе.
+     */
     @Data
     public static class PatientInfo {
         private Long id;
@@ -72,6 +82,9 @@ public class CurrentUserDto {
         public PatientInfo() {
         }
 
+        /**
+         * @param patient сущность пациента
+         */
         public PatientInfo(Patient patient) {
             this.id = patient.getId();
             this.birthDate = patient.getBirthDate();
@@ -82,13 +95,17 @@ public class CurrentUserDto {
         }
     }
 
+    /**
+     * Вложенный DTO профиля врача в составе ответа о текущем пользователе; фото — публичный URL Directus.
+     */
     @Data
     public static class DoctorInfo {
         private Long id;
         private String displayName;
         private String bio;
         private Integer experienceYears;
-        private String photo; // Base64-кодированное изображение
+        /** Публичный URL изображения (Directus asset или внешняя ссылка). */
+        private String photo;
         private List<SpecializationDto> specializations;
         private OffsetDateTime createdAt;
         private OffsetDateTime updatedAt;
@@ -96,18 +113,15 @@ public class CurrentUserDto {
         public DoctorInfo() {
         }
 
-        public DoctorInfo(Doctor doctor) {
+        /**
+         * @param doctor сущность врача; {@code directusPublicBaseUrl} — база Directus без завершающего /
+         */
+        public DoctorInfo(Doctor doctor, String directusPublicBaseUrl) {
             this.id = doctor.getId();
             this.displayName = doctor.getDisplayName();
             this.bio = doctor.getBio();
             this.experienceYears = doctor.getExperienceYears();
-            
-            // Конвертируем фото в Base64 строку
-            if (doctor.getPhoto() != null && doctor.getPhoto().length > 0) {
-                this.photo = Base64.getEncoder().encodeToString(doctor.getPhoto());
-            } else {
-                this.photo = null;
-            }
+            this.photo = DoctorPhotoUrls.toPublicImageUrl(doctor.getPhoto(), directusPublicBaseUrl);
             
             this.createdAt = doctor.getCreatedAt();
             this.updatedAt = doctor.getUpdatedAt();

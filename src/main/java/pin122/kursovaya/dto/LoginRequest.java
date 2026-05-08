@@ -4,6 +4,9 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
+/**
+ * Тело REST-запроса входа в систему (email и пароль).
+ */
 @Data
 public class LoginRequest {
     @Email(message = "Некорректный формат email")

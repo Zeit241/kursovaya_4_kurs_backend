@@ -10,6 +10,9 @@ import pin122.kursovaya.dto.validation.OnCreate;
 import pin122.kursovaya.dto.validation.OnUpdate;
 import pin122.kursovaya.model.Specialization;
 
+/**
+ * DTO справочника медицинских специализаций для REST и вложенного использования (код, название, описание).
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -26,6 +29,9 @@ public class SpecializationDto {
 
     private String description;
 
+    /**
+     * @param specialization сущность специализации
+     */
     public SpecializationDto(Specialization specialization) {
         this.id = specialization.getId();
         this.code = specialization.getCode();

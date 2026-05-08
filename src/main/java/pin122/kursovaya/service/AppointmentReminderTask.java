@@ -14,8 +14,9 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 /**
- * Фоновая задача для отправки напоминаний о предстоящих приёмах
- * Запускается каждый день в 9:00 и отправляет напоминания о приёмах на следующий день
+ * Планировщик email-напоминаний о приёмах: ежедневно на завтра и в окне «за 2 часа».
+ *
+ * <p>Учитывает флаг {@code app.notifications.enabled}.
  */
 @Component
 public class AppointmentReminderTask {
@@ -28,6 +29,10 @@ public class AppointmentReminderTask {
     @Value("${app.notifications.enabled:true}")
     private boolean notificationsEnabled;
 
+    /**
+     * @param appointmentRepository      выборка запланированных приёмов по интервалам времени
+     * @param emailNotificationService   отправка писем-напоминаний
+     */
     public AppointmentReminderTask(AppointmentRepository appointmentRepository,
                                    EmailNotificationService emailNotificationService) {
         this.appointmentRepository = appointmentRepository;
@@ -35,8 +40,9 @@ public class AppointmentReminderTask {
     }
 
     /**
-     * Отправляет напоминания о приёмах на следующий день
-     * Запускается каждый день в 9:00
+     * Отправляет напоминания о приёмах на следующий календарный день (UTC-границы суток).
+     *
+     * <p>Расписание: каждый день в 9:00 ({@link Scheduled} {@code cron}).
      */
     @Scheduled(cron = "0 0 9 * * *") // каждый день в 9:00
     public void sendDailyReminders() {
@@ -84,8 +90,9 @@ public class AppointmentReminderTask {
     }
 
     /**
-     * Отправляет напоминания за 2 часа до приёма
-     * Запускается каждые 30 минут
+     * Ищет приёмы, начинающиеся примерно через 2–2,5 часа, и отправляет напоминания.
+     *
+     * <p>Интервал запуска: каждые 30 минут.
      */
     @Scheduled(fixedRate = 1800000) // каждые 30 минут
     public void sendUpcomingReminders() {

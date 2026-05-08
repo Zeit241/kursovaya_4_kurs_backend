@@ -13,7 +13,7 @@ import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 
 /**
- * Сервис для отправки email писем
+ * Асинхронная отправка писем через {@link JavaMailSender} и шаблоны Thymeleaf.
  */
 @Service
 public class EmailService {
@@ -29,66 +29,69 @@ public class EmailService {
     @Value("${app.clinic.name:Медицинский центр}")
     private String clinicName;
 
+    /**
+     * @param mailSender      отправитель Spring Mail
+     * @param templateEngine  движок шаблонов для HTML-писем
+     */
     public EmailService(JavaMailSender mailSender, TemplateEngine templateEngine) {
         this.mailSender = mailSender;
         this.templateEngine = templateEngine;
     }
 
     /**
-     * Асинхронная отправка HTML письма с использованием шаблона
+     * Формирует HTML из шаблона и отправляет письмо асинхронно.
      *
-     * @param to           Email получателя
-     * @param subject      Тема письма
-     * @param templateName Название шаблона (без расширения)
-     * @param context      Контекст с данными для шаблона
+     * @param to           адрес получателя
+     * @param subject      тема письма
+     * @param templateName имя шаблона Thymeleaf без расширения
+     * @param context      переменные для шаблона; в контекст добавляется {@code clinicName}
      */
     @Async
     public void sendHtmlEmail(String to, String subject, String templateName, Context context) {
         try {
             context.setVariable("clinicName", clinicName);
-            
+
             String htmlContent = templateEngine.process(templateName, context);
-            
+
             MimeMessage mimeMessage = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
-            
+
             helper.setFrom(fromEmail);
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(htmlContent, true);
-            
+
             mailSender.send(mimeMessage);
             logger.info("Email успешно отправлен на {}, тема: {}", to, subject);
-            
+
         } catch (MessagingException e) {
             logger.error("Ошибка при отправке email на {}: {}", to, e.getMessage());
         }
     }
 
     /**
-     * Отправка простого текстового письма
+     * Отправляет простое текстовое письмо без HTML.
      *
-     * @param to      Email получателя
-     * @param subject Тема письма
-     * @param text    Текст письма
+     * @param to      адрес получателя
+     * @param subject тема письма
+     * @param text    тело письма в виде текста
      */
     @Async
     public void sendSimpleEmail(String to, String subject, String text) {
         try {
             MimeMessage mimeMessage = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, false, "UTF-8");
-            
+
             helper.setFrom(fromEmail);
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(text, false);
-            
+
             mailSender.send(mimeMessage);
             logger.info("Простое email успешно отправлено на {}, тема: {}", to, subject);
-            
+
         } catch (MessagingException e) {
             logger.error("Ошибка при отправке простого email на {}: {}", to, e.getMessage());
         }
     }
 }
-

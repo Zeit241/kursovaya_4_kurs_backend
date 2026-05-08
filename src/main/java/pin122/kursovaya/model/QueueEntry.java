@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import lombok.Data;
 import java.time.OffsetDateTime;
 
+/**
+ * JPA-сущность места пациента в очереди к врачу: уникальная позиция на врача и опциональная связь с приёмом.
+ */
 @Data
 @Entity
 @Table(name = "queue_entries", uniqueConstraints = @UniqueConstraint(columnNames = {"doctor_id", "position"}))

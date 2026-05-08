@@ -33,6 +33,9 @@ import static org.mockito.Mockito.*;
 class DoctorServiceTest {
 
     @Mock
+    private BookingCatalogRepository bookingCatalogRepository;
+
+    @Mock
     private DoctorRepository doctorRepository;
 
     @Mock
@@ -81,7 +84,6 @@ class DoctorServiceTest {
         testDoctor = new Doctor();
         testDoctor.setId(1L);
         testDoctor.setUser(doctorUser);
-        testDoctor.setDisplayName("Д-р Врачев А.П.");
         testDoctor.setBio("Опытный терапевт");
         testDoctor.setExperienceYears(15);
         testDoctor.setCreatedAt(OffsetDateTime.now());
@@ -130,7 +132,7 @@ class DoctorServiceTest {
         Optional<DoctorDto> result = doctorService.getDoctorById(1L);
 
         assertTrue(result.isPresent());
-        assertEquals("Д-р Врачев А.П.", result.get().getDisplayName());
+        assertEquals("Врачев Алексей Петрович", result.get().getDisplayName());
         assertEquals(15, result.get().getExperienceYears());
         assertEquals(4.8, result.get().getRating());
         assertEquals(25, result.get().getReviewCount());
@@ -158,7 +160,7 @@ class DoctorServiceTest {
 
         assertNotNull(result);
         assertEquals(1, result.size());
-        assertEquals("Д-р Врачев А.П.", result.get(0).getDisplayName());
+        assertEquals("Врачев Алексей Петрович", result.get(0).getDisplayName());
     }
 
     @Test
@@ -243,7 +245,6 @@ class DoctorServiceTest {
         Doctor doctor2 = new Doctor();
         doctor2.setId(2L);
         doctor2.setUser(user2);
-        doctor2.setDisplayName("Д-р Хирургова М.");
         doctor2.setExperienceYears(20);
         doctor2.setCreatedAt(OffsetDateTime.now());
         doctor2.setUpdatedAt(OffsetDateTime.now());

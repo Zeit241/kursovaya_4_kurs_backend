@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -15,24 +14,21 @@ import pin122.kursovaya.model.Appointment;
 import pin122.kursovaya.repository.AppointmentRepository;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Сервис для работы с очередью в Redis
- * Использует Sorted Set для хранения очереди: queue:doctor:{doctorId}
- * Score = позиция в очереди, Member = patient:{patientId}
- * 
- * Также управляет WebSocket сессиями:
- * - ws:session:{sessionId} - JSON с данными сессии
- * - ws:sessions:active - Set активных sessionId
- * - patient:sessions:{patientId} - Set сессий пациента (для multi-device)
+ * Очередь пациентов в Redis (ZSET по ключу {@code queue:doctor:{id}:{yyyy-MM-dd}}) и учёт WebSocket-сессий.
+ *
+ * <p>Очередь: score — позиция, member — {@code patient:{patientId}}. Сессии: {@code ws:session:…},
+ * множество активных сессий, множество сессий на пациента для нескольких устройств.
  */
 @Service
 public class RedisQueueService {
@@ -48,6 +44,12 @@ public class RedisQueueService {
     private final SimpMessagingTemplate messagingTemplate;
     private final ObjectMapper objectMapper;
 
+    /**
+     * @param redisTemplate        операции со строковыми ключами Redis
+     * @param removeAndShiftScript Lua-скрипт удаления из ZSET со сдвигом score
+     * @param appointmentRepository чтение приёмов для построения и очистки очереди
+     * @param messagingTemplate    рассылка STOMP/WebSocket
+     */
     public RedisQueueService(RedisTemplate<String, String> redisTemplate,
                             DefaultRedisScript<Long> removeAndShiftScript,
                             AppointmentRepository appointmentRepository,
@@ -63,16 +65,19 @@ public class RedisQueueService {
     // ==================== SESSION MANAGEMENT ====================
 
     /**
-     * Генерирует уникальный ID сессии
+     * Создаёт новый UUID для идентификатора WebSocket-сессии в Redis.
+     *
+     * @return строка UUID
      */
     public String generateSessionId() {
         return UUID.randomUUID().toString();
     }
 
     /**
-     * Сохраняет данные сессии в Redis
-     * @param sessionId ID сессии
-     * @param sessionData Данные сессии
+     * Сериализует {@link WebSocketSessionData} в JSON и сохраняет в Redis, регистрируя сессию в индексах.
+     *
+     * @param sessionId   ключ сессии
+     * @param sessionData полезная нагрузка (email, patientId, список приёмов и т.д.)
      */
     public void saveSession(String sessionId, WebSocketSessionData sessionData) {
         try {
@@ -98,9 +103,10 @@ public class RedisQueueService {
     }
 
     /**
-     * Получает данные сессии из Redis
-     * @param sessionId ID сессии
-     * @return Данные сессии или null если не найдена
+     * Десериализует сессию из Redis по ключу.
+     *
+     * @param sessionId идентификатор сессии
+     * @return объект данных или {@code null}, если ключ отсутствует или JSON повреждён
      */
     public WebSocketSessionData getSession(String sessionId) {
         try {
@@ -119,8 +125,9 @@ public class RedisQueueService {
     }
 
     /**
-     * Удаляет сессию и связанные данные из Redis
-     * @param sessionId ID сессии
+     * Удаляет сессию из Redis и при отсутствии других сессий пациента очищает его из всех очередей.
+     *
+     * @param sessionId идентификатор сессии
      */
     public void deleteSession(String sessionId) {
         WebSocketSessionData sessionData = getSession(sessionId);
@@ -153,8 +160,9 @@ public class RedisQueueService {
     }
 
     /**
-     * Получает все активные сессии
-     * @return Список данных всех активных сессий
+     * Загружает данные по всем sessionId из множества активных сессий.
+     *
+     * @return список {@link WebSocketSessionData} без {@code null}-элементов
      */
     public List<WebSocketSessionData> getAllActiveSessions() {
         Set<String> sessionIds = redisTemplate.opsForSet().members(ACTIVE_SESSIONS_KEY);
@@ -170,9 +178,10 @@ public class RedisQueueService {
     }
 
     /**
-     * Получает все сессии пациента
-     * @param patientId ID пациента
-     * @return Set ID сессий
+     * Идентификаторы WebSocket-сессий, привязанных к пациенту.
+     *
+     * @param patientId идентификатор пациента
+     * @return множество sessionId или {@code null}, если ключа нет в Redis
      */
     public Set<String> getPatientSessions(Long patientId) {
         String patientSessionsKey = PATIENT_SESSIONS_PREFIX + patientId;
@@ -180,9 +189,10 @@ public class RedisQueueService {
     }
 
     /**
-     * Проверяет, есть ли у пациента активные сессии
-     * @param patientId ID пациента
-     * @return true если есть хотя бы одна активная сессия
+     * Проверяет непустое множество сессий пациента в Redis.
+     *
+     * @param patientId идентификатор пациента
+     * @return {@code true}, если размер множества {@code > 0}
      */
     public boolean hasActiveSessions(Long patientId) {
         String patientSessionsKey = PATIENT_SESSIONS_PREFIX + patientId;
@@ -193,12 +203,10 @@ public class RedisQueueService {
     // ==================== QUEUE MANAGEMENT FOR TODAY ====================
 
     /**
-     * Формирует очередь для пациента на текущий день
-     * Получает все appointments на сегодня, группирует по врачам,
-     * проверяет позицию пользователя и добавляет в очередь Redis
-     * 
-     * @param patientId ID пациента
-     * @return Список записей очереди для пациента
+     * По приёмам на сегодня добавляет пациента в ZSET очередей к соответствующим врачам с рассчитанной позицией.
+     *
+     * @param patientId идентификатор пациента
+     * @return список созданных {@link QueueEntryDto} для ответа клиенту
      */
     public List<QueueEntryDto> buildQueueForToday(Long patientId) {
         LocalDate today = LocalDate.now();
@@ -248,8 +256,8 @@ public class RedisQueueService {
                     position++;
                 }
                 
-                // Добавляем пациента в очередь Redis
-                addToQueue(patientId, doctorId, position);
+                // Добавляем пациента в очередь Redis (ключ на календарный день)
+                addToQueue(patientId, doctorId, position, today);
                 
                 // Создаем DTO для возврата
                 QueueEntryDto queueEntry = new QueueEntryDto(
@@ -271,193 +279,265 @@ public class RedisQueueService {
     }
 
     /**
-     * Удаляет пациента из всех очередей
-     * @param patientId ID пациента
+     * Для каждого уникального (врач, день) из приёмов пациента вызывает {@link #removeFromQueue(Long, Long, LocalDate)}.
+     *
+     * @param patientId идентификатор пациента
      */
     public void removePatientFromAllQueues(Long patientId) {
-        // Получаем все appointments пациента для определения врачей
         List<Appointment> appointments = appointmentRepository.findByPatientId(patientId);
-        
-        Set<Long> doctorIds = appointments.stream()
-                .filter(a -> a.getDoctor() != null)
-                .map(a -> a.getDoctor().getId())
-                .collect(Collectors.toSet());
-        
-        for (Long doctorId : doctorIds) {
-            removeFromQueue(patientId, doctorId);
+        Set<String> seen = new HashSet<>();
+        for (Appointment a : appointments) {
+            if (a.getDoctor() == null) {
+                continue;
+            }
+            LocalDate d = queueDateFromStart(a.getStartTime());
+            String key = a.getDoctor().getId() + ":" + d;
+            if (seen.add(key)) {
+                removeFromQueue(patientId, a.getDoctor().getId(), d);
+            }
         }
-        
-        System.out.println("DEBUG Redis: Пациент " + patientId + " удален из всех очередей");
+        System.out.println("DEBUG Redis: Пациент " + patientId + " удален из всех очередей (по дням)");
     }
 
     /**
-     * Удаляет просроченные appointments из очереди
-     * Вызывается scheduled задачей каждую минуту
-     * 
-     * @param sessionId ID сессии для обновления
-     * @return Количество удаленных записей
+     * Удаляет из очереди приёмы сессии, у которых время начала уже в прошлом; обновляет список id в сессии.
+     *
+     * @param sessionId идентификатор WebSocket-сессии
+     * @return число удалений из очереди
      */
     public int removeExpiredAppointments(String sessionId) {
+        return removeExpiredAppointments(sessionId, null);
+    }
+
+    /**
+     * То же, что {@link #removeExpiredAppointments(String)}, с опциональной регистрацией затронутых пар (врач, день) для broadcast.
+     *
+     * @param sessionId             идентификатор сессии
+     * @param affectedDoctorDayKeys коллекция для добавления строк {@code doctorId|yyyy-MM-dd} или {@code null}
+     * @return число удалений из очереди
+     */
+    public int removeExpiredAppointments(String sessionId, Collection<String> affectedDoctorDayKeys) {
         WebSocketSessionData session = getSession(sessionId);
         if (session == null || session.getAppointmentIds() == null) {
             return 0;
         }
-        
+
         OffsetDateTime now = OffsetDateTime.now();
         int removedCount = 0;
         List<Long> activeAppointmentIds = new ArrayList<>();
-        
+
         for (Long appointmentId : session.getAppointmentIds()) {
             Appointment appointment = appointmentRepository.findById(appointmentId).orElse(null);
-            
+
             if (appointment == null) {
                 continue;
             }
-            
-            // Если время приема прошло - удаляем из очереди
+
             if (appointment.getStartTime().isBefore(now)) {
                 if (appointment.getPatient() != null && appointment.getDoctor() != null) {
-                    removeFromQueue(appointment.getPatient().getId(), appointment.getDoctor().getId());
+                    LocalDate qd = queueDateFromStart(appointment.getStartTime());
+                    removeFromQueue(appointment.getPatient().getId(), appointment.getDoctor().getId(), qd);
                     removedCount++;
-                    System.out.println("DEBUG Redis: Удален просроченный appointment " + appointmentId + 
-                            " из очереди к врачу " + appointment.getDoctor().getId());
+                    if (affectedDoctorDayKeys != null) {
+                        affectedDoctorDayKeys.add(appointment.getDoctor().getId() + "|" + qd);
+                    }
+                    System.out.println("DEBUG Redis: Удален просроченный appointment " + appointmentId +
+                            " из очереди к врачу " + appointment.getDoctor().getId() + " день " + qd);
                 }
             } else {
                 activeAppointmentIds.add(appointmentId);
             }
         }
-        
-        // Обновляем список appointments в сессии
+
         if (removedCount > 0) {
             session.setAppointmentIds(activeAppointmentIds);
             saveSession(sessionId, session);
         }
-        
+
         return removedCount;
     }
 
     /**
-     * Пересчитывает очередь для врача после изменения статуса appointment
-     * @param doctorId ID врача
+     * Пересчитывает ZSET очереди врача на сегодня ({@link LocalDate#now()} в системной зоне JVM).
+     *
+     * @param doctorId идентификатор врача
+     * @see #recalculateQueueForDoctor(Long, LocalDate)
      */
     public void recalculateQueueForDoctor(Long doctorId) {
-        LocalDate today = LocalDate.now();
-        OffsetDateTime startOfDay = today.atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
-        OffsetDateTime endOfDay = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
+        recalculateQueueForDoctor(doctorId, LocalDate.now());
+    }
+
+    /**
+     * Очищает ключ очереди на дату и заново заполняет по предстоящим незавершённым приёмам врача, затем шлёт STOMP.
+     *
+     * @param doctorId  врач
+     * @param queueDate календарный день очереди; {@code null} трактуется как сегодня
+     */
+    public void recalculateQueueForDoctor(Long doctorId, LocalDate queueDate) {
+        if (queueDate == null) {
+            queueDate = LocalDate.now();
+        }
+        OffsetDateTime startOfDay = queueDate.atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
+        OffsetDateTime endOfDay = queueDate.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
         OffsetDateTime now = OffsetDateTime.now();
-        
-        // Получаем все активные appointments к врачу на сегодня
+
         List<Appointment> doctorAppointments = appointmentRepository.findByDoctorId(doctorId)
                 .stream()
                 .filter(a -> a.getPatient() != null)
-                .filter(a -> a.getStartTime().isAfter(startOfDay) && a.getStartTime().isBefore(endOfDay))
+                .filter(a -> !a.getStartTime().isBefore(startOfDay) && a.getStartTime().isBefore(endOfDay))
                 .filter(a -> a.getStartTime().isAfter(now))
                 .filter(a -> !"completed".equals(a.getStatus()) && !"cancelled".equals(a.getStatus()))
                 .sorted((a1, a2) -> a1.getStartTime().compareTo(a2.getStartTime()))
                 .collect(Collectors.toList());
-        
-        // Очищаем текущую очередь к врачу
-        clearQueue(doctorId);
-        
-        // Добавляем всех пациентов с новыми позициями
+
+        clearQueue(doctorId, queueDate);
+
         int position = 0;
         for (Appointment appointment : doctorAppointments) {
-            addToQueueWithoutNotification(appointment.getPatient().getId(), doctorId, position);
+            addToQueueWithoutNotification(appointment.getPatient().getId(), doctorId, position, queueDate);
             position++;
         }
-        
-        // Отправляем одно уведомление об обновлении очереди
-        notifyQueueUpdated(doctorId);
-        
-        System.out.println("DEBUG Redis: Очередь к врачу " + doctorId + " пересчитана, " + 
-                doctorAppointments.size() + " пациентов");
+
+        notifyQueueUpdated(doctorId, queueDate);
+
+        System.out.println("DEBUG Redis: Очередь к врачу " + doctorId + " на " + queueDate + " пересчитана, "
+                + doctorAppointments.size() + " пациентов");
     }
 
     // ==================== QUEUE OPERATIONS ====================
 
     /**
-     * Добавляет пациента в очередь к врачу
-     * @param patientId ID пациента
-     * @param doctorId ID врача
-     * @param position Позиция в очереди (score в Sorted Set)
+     * Добавляет пациента в очередь на сегодняшний день с указанным score.
+     *
+     * @param patientId идентификатор пациента
+     * @param doctorId  врач
+     * @param position  позиция (score в ZSET)
+     * @see #addToQueue(Long, Long, Integer, LocalDate)
      */
     public void addToQueue(Long patientId, Long doctorId, Integer position) {
-        String queueKey = getQueueKey(doctorId);
-        String patientKey = "patient:" + patientId;
-        
-        ZSetOperations<String, String> zSetOps = redisTemplate.opsForZSet();
-        zSetOps.add(queueKey, patientKey, position);
-        
-        // Отправляем уведомление об обновлении очереди
-        notifyQueueUpdated(doctorId);
+        addToQueue(patientId, doctorId, position, LocalDate.now());
     }
 
     /**
-     * Добавляет пациента в очередь без отправки уведомления
-     * Используется при массовом обновлении очереди
+     * Добавляет member {@code patient:{id}} в ZSET с уведомлением подписчиков топика очереди.
+     *
+     * @param patientId идентификатор пациента
+     * @param doctorId  врач
+     * @param position  score (позиция)
+     * @param queueDate день очереди; {@code null} — сегодня
      */
-    private void addToQueueWithoutNotification(Long patientId, Long doctorId, Integer position) {
-        String queueKey = getQueueKey(doctorId);
+    public void addToQueue(Long patientId, Long doctorId, Integer position, LocalDate queueDate) {
+        if (queueDate == null) {
+            queueDate = LocalDate.now();
+        }
+        String queueKey = getQueueKey(doctorId, queueDate);
         String patientKey = "patient:" + patientId;
-        
+
+        ZSetOperations<String, String> zSetOps = redisTemplate.opsForZSet();
+        zSetOps.add(queueKey, patientKey, position);
+
+        notifyQueueUpdated(doctorId, queueDate);
+    }
+
+    /**
+     * Добавление в ZSET без вызова {@link #notifyQueueUpdated(Long, LocalDate)} (для пакетного пересчёта).
+     *
+     * @param patientId идентификатор пациента
+     * @param doctorId  врач
+     * @param position  score
+     * @param queueDate день очереди
+     */
+    private void addToQueueWithoutNotification(Long patientId, Long doctorId, Integer position, LocalDate queueDate) {
+        if (queueDate == null) {
+            queueDate = LocalDate.now();
+        }
+        String queueKey = getQueueKey(doctorId, queueDate);
+        String patientKey = "patient:" + patientId;
+
         ZSetOperations<String, String> zSetOps = redisTemplate.opsForZSet();
         zSetOps.add(queueKey, patientKey, position);
     }
 
     /**
-     * Удаляет пациента из очереди с автоматическим сдвигом позиций
-     * Использует Lua-скрипт для атомарной операции
-     * 
-     * @param patientId ID пациента
-     * @param doctorId ID врача
-     * @return true если пациент был удален, false если не найден
+     * Удаляет пациента из очереди врача на сегодня.
+     *
+     * @param patientId идентификатор пациента
+     * @param doctorId  врач
+     * @return {@code true}, если Lua-скрипт вернул ненулевой результат
+     * @see #removeFromQueue(Long, Long, LocalDate)
      */
     public boolean removeFromQueue(Long patientId, Long doctorId) {
-        String queueKey = getQueueKey(doctorId);
+        return removeFromQueue(patientId, doctorId, LocalDate.now());
+    }
+
+    /**
+     * Удаляет пациента из ZSET на дату и сдвигает score остальных через {@link DefaultRedisScript}.
+     *
+     * @param patientId идентификатор пациента
+     * @param doctorId  врач
+     * @param queueDate день; {@code null} — сегодня
+     * @return {@code true}, если удаление выполнено
+     */
+    public boolean removeFromQueue(Long patientId, Long doctorId, LocalDate queueDate) {
+        if (queueDate == null) {
+            queueDate = LocalDate.now();
+        }
+        String queueKey = getQueueKey(doctorId, queueDate);
         String patientKey = "patient:" + patientId;
-        
+
         Long result = redisTemplate.execute(
             removeAndShiftScript,
             List.of(queueKey),
             patientKey
         );
-        
+
         if (result != null && result > 0) {
-            // Отправляем уведомление об обновлении очереди
-            notifyQueueUpdated(doctorId);
+            notifyQueueUpdated(doctorId, queueDate);
             return true;
         }
-        
+
         return false;
     }
 
     /**
-     * Получает очередь к врачу
-     * @param doctorId ID врача
-     * @return Список записей очереди
+     * Возвращает упорядоченную очередь врача на сегодня.
+     *
+     * @param doctorId врач
+     * @return список {@link QueueEntryDto}
+     * @see #getQueueByDoctor(Long, LocalDate)
      */
     public List<QueueEntryDto> getQueueByDoctor(Long doctorId) {
-        String queueKey = getQueueKey(doctorId);
+        return getQueueByDoctor(doctorId, LocalDate.now());
+    }
+
+    /**
+     * Читает ZSET и для каждого пациента пытается найти связанный приём на этот день.
+     *
+     * @param doctorId  врач
+     * @param queueDate день; {@code null} — сегодня
+     * @return список позиций и идентификаторов
+     */
+    public List<QueueEntryDto> getQueueByDoctor(Long doctorId, LocalDate queueDate) {
+        final LocalDate day = queueDate == null ? LocalDate.now() : queueDate;
+        String queueKey = getQueueKey(doctorId, day);
         ZSetOperations<String, String> zSetOps = redisTemplate.opsForZSet();
-        
-        // Получаем все элементы с их позициями (score)
+
         Set<ZSetOperations.TypedTuple<String>> members = zSetOps.rangeWithScores(queueKey, 0, -1);
-        
+
         if (members == null) {
             return List.of();
         }
-        
+
         return members.stream()
                 .map(tuple -> {
                     String patientKey = tuple.getValue();
                     Long patientId = extractPatientId(patientKey);
                     Integer position = tuple.getScore() != null ? tuple.getScore().intValue() : 0;
-                    
-                    // Получаем appointment для этого пациента и врача
-                    Appointment appointment = findAppointment(patientId, doctorId);
-                    
+
+                    Appointment appointment = findAppointment(patientId, doctorId, day);
+
                     return new QueueEntryDto(
-                            null, // ID не используется в Redis
+                            null,
                             doctorId,
                             appointment != null ? appointment.getId() : null,
                             patientId,
@@ -469,82 +549,168 @@ public class RedisQueueService {
     }
 
     /**
-     * Получает позицию пациента в очереди
-     * @param patientId ID пациента
-     * @param doctorId ID врача
-     * @return Позиция в очереди или null если не найден
+     * Позиция пациента в очереди врача на сегодня (score в ZSET, целая часть).
+     *
+     * @param patientId пациент
+     * @param doctorId  врач
+     * @return позиция или {@code null}, если member отсутствует
+     * @see #getPatientPosition(Long, Long, LocalDate)
      */
     public Integer getPatientPosition(Long patientId, Long doctorId) {
-        String queueKey = getQueueKey(doctorId);
+        return getPatientPosition(patientId, doctorId, LocalDate.now());
+    }
+
+    /**
+     * Возвращает score member {@code patient:{patientId}} в ZSET очереди на дату.
+     *
+     * @param patientId идентификатор пациента
+     * @param doctorId  врач
+     * @param queueDate день; {@code null} — сегодня
+     * @return целая часть score или {@code null}
+     */
+    public Integer getPatientPosition(Long patientId, Long doctorId, LocalDate queueDate) {
+        if (queueDate == null) {
+            queueDate = LocalDate.now();
+        }
+        String queueKey = getQueueKey(doctorId, queueDate);
         String patientKey = "patient:" + patientId;
-        
+
         ZSetOperations<String, String> zSetOps = redisTemplate.opsForZSet();
         Double score = zSetOps.score(queueKey, patientKey);
-        
+
         return score != null ? score.intValue() : null;
     }
 
     /**
-     * Проверяет, является ли пациент следующим в очереди
-     * @param patientId ID пациента
-     * @param doctorId ID врача
-     * @return true если пациент следующий (позиция 0 или нет пациентов перед ним)
+     * Проверяет «следующий ли пациент» на сегодня.
+     *
+     * @param patientId пациент
+     * @param doctorId  врач
+     * @return результат {@link #isPatientNextInQueue(Long, Long, LocalDate)}
      */
     public boolean isPatientNextInQueue(Long patientId, Long doctorId) {
-        Integer position = getPatientPosition(patientId, doctorId);
+        return isPatientNextInQueue(patientId, doctorId, LocalDate.now());
+    }
+
+    /**
+     * {@code true}, если позиция 0 или нет других member с меньшим score перед пациентом.
+     *
+     * @param patientId пациент
+     * @param doctorId  врач
+     * @param queueDate день очереди; {@code null} при внутреннем вызове обрабатывается как сегодня
+     * @return признак «следующий в очереди»
+     */
+    public boolean isPatientNextInQueue(Long patientId, Long doctorId, LocalDate queueDate) {
+        Integer position = getPatientPosition(patientId, doctorId, queueDate);
         if (position == null) {
             return false;
         }
-        
+
         if (position == 0) {
             return true;
         }
-        
-        // Проверяем, есть ли пациенты с позицией меньше текущей
-        String queueKey = getQueueKey(doctorId);
+
+        String queueKey = getQueueKey(doctorId, queueDate == null ? LocalDate.now() : queueDate);
         ZSetOperations<String, String> zSetOps = redisTemplate.opsForZSet();
         Long count = zSetOps.count(queueKey, 0, position - 1);
-        
+
         return count == null || count == 0;
     }
 
     /**
-     * Получает размер очереди к врачу
-     * @param doctorId ID врача
-     * @return Количество пациентов в очереди
+     * Число member в ZSET очереди врача на сегодня ({@link org.springframework.data.redis.core.ZSetOperations#zCard}).
+     *
+     * @param doctorId врач
+     * @return размер или {@code null}, если Redis вернул {@code null}
+     * @see #getQueueSize(Long, LocalDate)
      */
     public Long getQueueSize(Long doctorId) {
-        String queueKey = getQueueKey(doctorId);
+        return getQueueSize(doctorId, LocalDate.now());
+    }
+
+    /**
+     * Размер очереди на указанную дату.
+     *
+     * @param doctorId  врач
+     * @param queueDate день; {@code null} — сегодня
+     * @return количество записей в ZSET
+     */
+    public Long getQueueSize(Long doctorId, LocalDate queueDate) {
+        if (queueDate == null) {
+            queueDate = LocalDate.now();
+        }
+        String queueKey = getQueueKey(doctorId, queueDate);
         ZSetOperations<String, String> zSetOps = redisTemplate.opsForZSet();
         return zSetOps.zCard(queueKey);
     }
 
     /**
-     * Очищает очередь к врачу
-     * @param doctorId ID врача
+     * Удаляет ключ очереди врача на сегодня.
+     *
+     * @param doctorId врач
+     * @see #clearQueue(Long, LocalDate)
      */
     public void clearQueue(Long doctorId) {
-        String queueKey = getQueueKey(doctorId);
+        clearQueue(doctorId, LocalDate.now());
+    }
+
+    /**
+     * Полностью удаляет ZSET очереди на календарный день без уведомлений.
+     *
+     * @param doctorId  врач
+     * @param queueDate день; {@code null} — сегодня
+     */
+    public void clearQueue(Long doctorId, LocalDate queueDate) {
+        if (queueDate == null) {
+            queueDate = LocalDate.now();
+        }
+        String queueKey = getQueueKey(doctorId, queueDate);
         redisTemplate.delete(queueKey);
     }
 
     /**
-     * Очищает очередь к врачу и отправляет уведомление
-     * @param doctorId ID врача
+     * Очищает очередь на сегодня и отправляет обновление в STOMP.
+     *
+     * @param doctorId врач
+     * @see #clearQueueWithNotification(Long, LocalDate)
      */
     public void clearQueueWithNotification(Long doctorId) {
-        clearQueue(doctorId);
-        notifyQueueUpdated(doctorId);
+        clearQueueWithNotification(doctorId, LocalDate.now());
     }
 
     /**
-     * Отправляет WebSocket уведомление об обновлении очереди
-     * @param doctorId ID врача
+     * Удаляет ключ очереди и вызывает {@link #notifyQueueUpdated(Long, LocalDate)}.
+     *
+     * @param doctorId  врач
+     * @param queueDate день; {@code null} — сегодня
+     */
+    public void clearQueueWithNotification(Long doctorId, LocalDate queueDate) {
+        clearQueue(doctorId, queueDate);
+        notifyQueueUpdated(doctorId, queueDate);
+    }
+
+    /**
+     * Рассылает актуальное состояние очереди врача на сегодня в топик {@code /topic/queue/doctor/{id}}.
+     *
+     * @param doctorId врач
+     * @see #notifyQueueUpdated(Long, LocalDate)
      */
     public void notifyQueueUpdated(Long doctorId) {
-        List<QueueEntryDto> queue = getQueueByDoctor(doctorId);
-        
-        // Отправляем обновление всем подписчикам на очередь этого врача
+        notifyQueueUpdated(doctorId, LocalDate.now());
+    }
+
+    /**
+     * Отправляет {@link QueueUpdateEvent} с полным списком {@link QueueEntryDto} подписчикам.
+     *
+     * @param doctorId  врач
+     * @param queueDate день; {@code null} — сегодня
+     */
+    public void notifyQueueUpdated(Long doctorId, LocalDate queueDate) {
+        if (queueDate == null) {
+            queueDate = LocalDate.now();
+        }
+        List<QueueEntryDto> queue = getQueueByDoctor(doctorId, queueDate);
+
         messagingTemplate.convertAndSend(
             "/topic/queue/doctor/" + doctorId,
             new QueueUpdateEvent(doctorId, queue)
@@ -552,9 +718,10 @@ public class RedisQueueService {
     }
 
     /**
-     * Отправляет персональное уведомление пользователю
-     * @param email Email пользователя
-     * @param queueEntries Записи очереди
+     * Персональное STOMP-сообщение пользователю ({@code /queue/user}) с обновлённым списком его очередей.
+     *
+     * @param email        principal/email пользователя
+     * @param queueEntries данные для {@link QueueInitResponse}
      */
     public void notifyUserQueueUpdate(String email, List<QueueEntryDto> queueEntries) {
         messagingTemplate.convertAndSendToUser(
@@ -565,37 +732,63 @@ public class RedisQueueService {
     }
 
     /**
-     * Получает все очереди для конкретного пациента
-     * @param patientId ID пациента
-     * @return Список записей очереди для всех врачей
+     * По активным приёмам пациента собирает его позиции в очередях разных врачей (через {@link #getQueueByDoctor}).
+     *
+     * @param patientId идентификатор пациента
+     * @return непустые {@link QueueEntryDto} для каждой релевантной очереди
      */
     public List<QueueEntryDto> getQueuesByPatient(Long patientId) {
-        // Получаем все appointments пациента
         List<Appointment> appointments = appointmentRepository.findByPatientId(patientId);
-        
-        // Группируем по врачам и получаем очереди
+
         return appointments.stream()
                 .filter(a -> a.getDoctor() != null)
                 .filter(a -> !"completed".equals(a.getStatus()) && !"cancelled".equals(a.getStatus()))
-                .collect(Collectors.groupingBy(Appointment::getDoctor))
-                .entrySet().stream()
-                .flatMap(entry -> {
-                    Long doctorId = entry.getKey().getId();
-                    Integer position = getPatientPosition(patientId, doctorId);
-                    if (position != null) {
-                        // Получаем очередь к врачу и фильтруем по пациенту
-                        List<QueueEntryDto> queue = getQueueByDoctor(doctorId);
-                        return queue.stream()
-                                .filter(e -> patientId.equals(e.getPatientId()));
+                .map(a -> {
+                    Long doctorId = a.getDoctor().getId();
+                    LocalDate qd = queueDateFromStart(a.getStartTime());
+                    Integer position = getPatientPosition(patientId, doctorId, qd);
+                    if (position == null) {
+                        return null;
                     }
-                    return java.util.stream.Stream.empty();
+                    return getQueueByDoctor(doctorId, qd).stream()
+                            .filter(e -> patientId.equals(e.getPatientId()))
+                            .findFirst()
+                            .orElse(null);
                 })
+                .filter(e -> e != null)
                 .collect(Collectors.toList());
     }
 
     /**
-     * Строит очередь из appointments для пациента (legacy метод)
-     * @deprecated Используйте buildQueueForToday вместо этого метода
+     * Для каждой активной сессии и каждого незавершённого приёма вызывает {@link #recalculateQueueForDoctor(Long, LocalDate)} не более одного раза на пару (врач, день).
+     */
+    public void recalculateQueuesForAllActiveSessionPatients() {
+        Set<String> done = new HashSet<>();
+        for (WebSocketSessionData s : getAllActiveSessions()) {
+            if (s.getPatientId() == null) {
+                continue;
+            }
+            for (Appointment a : appointmentRepository.findByPatientId(s.getPatientId())) {
+                if (a.getDoctor() == null) {
+                    continue;
+                }
+                if ("completed".equals(a.getStatus()) || "cancelled".equals(a.getStatus())) {
+                    continue;
+                }
+                LocalDate d = queueDateFromStart(a.getStartTime());
+                String key = a.getDoctor().getId() + ":" + d;
+                if (done.add(key)) {
+                    recalculateQueueForDoctor(a.getDoctor().getId(), d);
+                }
+            }
+        }
+    }
+
+    /**
+     * Устаревший алиас на {@link #buildQueueForToday(Long)}.
+     *
+     * @param patientId идентификатор пациента
+     * @deprecated используйте {@link #buildQueueForToday(Long)}
      */
     @Deprecated
     public void buildQueueFromAppointments(Long patientId) {
@@ -604,10 +797,39 @@ public class RedisQueueService {
 
     // ==================== PRIVATE HELPERS ====================
 
-    private String getQueueKey(Long doctorId) {
-        return QUEUE_KEY_PREFIX + doctorId;
+    /**
+     * Ключ Redis для ZSET очереди врача на дату.
+     *
+     * @param doctorId  врач
+     * @param queueDate день; {@code null} — сегодня
+     * @return строка ключа
+     */
+    private String getQueueKey(Long doctorId, LocalDate queueDate) {
+        if (queueDate == null) {
+            queueDate = LocalDate.now();
+        }
+        return QUEUE_KEY_PREFIX + doctorId + ":" + queueDate;
     }
 
+    /**
+     * Календарный день очереди по времени начала приёма в системной зоне JVM.
+     *
+     * @param startTime время начала или {@code null}
+     * @return дата или сегодня, если {@code startTime == null}
+     */
+    private static LocalDate queueDateFromStart(OffsetDateTime startTime) {
+        if (startTime == null) {
+            return LocalDate.now();
+        }
+        return startTime.atZoneSameInstant(ZoneId.systemDefault()).toLocalDate();
+    }
+
+    /**
+     * Парсит {@code patient:123} в Long.
+     *
+     * @param patientKey member ZSET
+     * @return id или {@code null}
+     */
     private Long extractPatientId(String patientKey) {
         if (patientKey != null && patientKey.startsWith("patient:")) {
             try {
@@ -619,15 +841,26 @@ public class RedisQueueService {
         return null;
     }
 
-    private Appointment findAppointment(Long patientId, Long doctorId) {
-        if (patientId == null || doctorId == null) {
+    /**
+     * Первый активный приём пациента к врачу в пределах календарного дня (системная зона).
+     *
+     * @param patientId идентификатор пациента
+     * @param doctorId  врач
+     * @param queueDate день
+     * @return {@link Appointment} или {@code null}
+     */
+    private Appointment findAppointment(Long patientId, Long doctorId, LocalDate queueDate) {
+        if (patientId == null || doctorId == null || queueDate == null) {
             return null;
         }
-        
+        OffsetDateTime startOfDay = queueDate.atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
+        OffsetDateTime endOfDay = queueDate.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
+
         return appointmentRepository
                 .findByPatientId(patientId)
                 .stream()
-                .filter(a -> doctorId.equals(a.getDoctor().getId()))
+                .filter(a -> a.getDoctor() != null && doctorId.equals(a.getDoctor().getId()))
+                .filter(a -> !a.getStartTime().isBefore(startOfDay) && a.getStartTime().isBefore(endOfDay))
                 .filter(a -> !"completed".equals(a.getStatus()) && !"cancelled".equals(a.getStatus()))
                 .findFirst()
                 .orElse(null);
@@ -636,53 +869,97 @@ public class RedisQueueService {
     // ==================== DTO CLASSES ====================
 
     /**
-     * DTO для WebSocket уведомлений об обновлении очереди
+     * Полезная нагрузка STOMP при изменении очереди врача (топик {@code /topic/queue/doctor/…}).
      */
     public static class QueueUpdateEvent {
         private Long doctorId;
         private List<QueueEntryDto> queue;
 
+        /**
+         * @param doctorId идентификатор врача
+         * @param queue    актуальный снимок очереди
+         */
         public QueueUpdateEvent(Long doctorId, List<QueueEntryDto> queue) {
             this.doctorId = doctorId;
             this.queue = queue;
         }
 
+        /**
+         * @return идентификатор врача
+         */
         public Long getDoctorId() {
             return doctorId;
         }
 
+        /**
+         * @param doctorId идентификатор врача
+         */
         public void setDoctorId(Long doctorId) {
             this.doctorId = doctorId;
         }
 
+        /**
+         * @return список {@link QueueEntryDto}
+         */
         public List<QueueEntryDto> getQueue() {
             return queue;
         }
 
+        /**
+         * @param queue список позиций очереди
+         */
         public void setQueue(List<QueueEntryDto> queue) {
             this.queue = queue;
         }
     }
 
     /**
-     * DTO для ответа инициализации очереди
+     * Ответ персональной очереди пользователю при инициализации или обновлении ({@link #notifyUserQueueUpdate}).
      */
     public static class QueueInitResponse {
         private boolean success;
         private String message;
         private List<QueueEntryDto> data;
 
+        /**
+         * @param success признак успеха операции
+         * @param message текст для клиента
+         * @param data    список записей очереди пациента
+         */
         public QueueInitResponse(boolean success, String message, List<QueueEntryDto> data) {
             this.success = success;
             this.message = message;
             this.data = data;
         }
 
+        /**
+         * @return {@code true}, если операция успешна
+         */
         public boolean isSuccess() { return success; }
+
+        /**
+         * @param success признак успеха
+         */
         public void setSuccess(boolean success) { this.success = success; }
+
+        /**
+         * @return сообщение для отображения
+         */
         public String getMessage() { return message; }
+
+        /**
+         * @param message сообщение
+         */
         public void setMessage(String message) { this.message = message; }
+
+        /**
+         * @return данные очереди
+         */
         public List<QueueEntryDto> getData() { return data; }
+
+        /**
+         * @param data список {@link QueueEntryDto}
+         */
         public void setData(List<QueueEntryDto> data) { this.data = data; }
     }
 }

@@ -17,8 +17,11 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Контроллер для работы с электронной очередью через вебхук
- * Все эндпоинты требуют авторизации по JWT токену
+ * REST-контроллер сценариев очереди для HTTP-клиентов (вебхуки): инициализация, позиция, свои очереди, удаление.
+ * <p>
+ * Базовый путь: {@code /api/queue/webhook}. Требуется JWT; пациент определяется по текущему пользователю.
+ *
+ * @see QueueService
  */
 @RestController
 @RequestMapping("/api/queue/webhook")
@@ -28,6 +31,11 @@ public class QueueWebhookController {
     private final UserRepository userRepository;
     private final PatientRepository patientRepository;
 
+    /**
+     * @param queueService       бизнес-логика очередей
+     * @param userRepository     получение текущего пользователя
+     * @param patientRepository  профиль пациента по пользователю
+     */
     public QueueWebhookController(QueueService queueService,
                                   UserRepository userRepository,
                                   PatientRepository patientRepository) {
@@ -37,9 +45,10 @@ public class QueueWebhookController {
     }
 
     /**
-     * Инициализирует вебхук и автоматически строит очередь на основе appointments пользователя
-     * Пропускает прошедшие записи (если сейчас на 20+ минут больше времени приема)
-     * POST /api/queue/webhook/init
+     * Строит очередь текущего пациента из активных записей на приём.
+     *
+     * @return HTTP 200 и список позиций в {@link ApiResponse}; HTTP 401/400/500 при ошибках
+     * @apiNote {@code POST /api/queue/webhook/init}
      */
     @PostMapping("/init")
     public ResponseEntity<ApiResponse<List<QueueEntryDto>>> initWebhook() {
@@ -75,8 +84,11 @@ public class QueueWebhookController {
     }
 
     /**
-     * Получает позицию текущего пользователя в очереди к врачу
-     * GET /api/queue/webhook/position?doctorId={doctorId}
+     * Возвращает позицию текущего пациента в очереди к указанному врачу.
+     *
+     * @param doctorId идентификатор врача
+     * @return HTTP 200 и {@link QueuePositionDto}; HTTP 401/400/404/500 при ошибках
+     * @apiNote {@code GET /api/queue/webhook/position?doctorId=}
      */
     @GetMapping("/position")
     public ResponseEntity<ApiResponse<QueuePositionDto>> getQueuePosition(@RequestParam Long doctorId) {
@@ -130,8 +142,11 @@ public class QueueWebhookController {
     }
 
     /**
-     * Проверяет, является ли текущий пользователь следующим в очереди
-     * GET /api/queue/webhook/check-next?doctorId={doctorId}
+     * Проверяет, является ли текущий пациент следующим к приёму у врача.
+     *
+     * @param doctorId идентификатор врача
+     * @return HTTP 200 и DTO с флагом «следующий»; HTTP 401/400/404/500 при ошибках
+     * @apiNote {@code GET /api/queue/webhook/check-next?doctorId=}
      */
     @GetMapping("/check-next")
     public ResponseEntity<ApiResponse<QueuePositionDto>> checkIfNext(@RequestParam Long doctorId) {
@@ -185,8 +200,10 @@ public class QueueWebhookController {
     }
 
     /**
-     * Получает все очереди текущего пользователя
-     * GET /api/queue/webhook/my-queues
+     * Возвращает все очереди, в которых участвует текущий пациент.
+     *
+     * @return HTTP 200 и список {@link QueueEntryDto}; HTTP 401/400/500 при ошибках
+     * @apiNote {@code GET /api/queue/webhook/my-queues}
      */
     @GetMapping("/my-queues")
     public ResponseEntity<ApiResponse<List<QueueEntryDto>>> getMyQueues() {
@@ -220,8 +237,11 @@ public class QueueWebhookController {
     }
 
     /**
-     * Удаляет текущего пользователя из очереди к врачу
-     * DELETE /api/queue/webhook/remove?doctorId={doctorId}
+     * Удаляет текущего пациента из очереди к указанному врачу.
+     *
+     * @param doctorId идентификатор врача
+     * @return HTTP 200; HTTP 401/400/500 при ошибках
+     * @apiNote {@code DELETE /api/queue/webhook/remove?doctorId=}
      */
     @DeleteMapping("/remove")
     public ResponseEntity<ApiResponse<Void>> removeFromQueue(@RequestParam Long doctorId) {
@@ -255,8 +275,11 @@ public class QueueWebhookController {
     }
 
     /**
-     * Получает полную очередь к врачу (для просмотра)
-     * GET /api/queue/webhook/doctor/{doctorId}
+     * Возвращает полную очередь к врачу (просмотр списка).
+     *
+     * @param doctorId идентификатор врача
+     * @return HTTP 200 и список позиций; HTTP 500 при сбое
+     * @apiNote {@code GET /api/queue/webhook/doctor/{doctorId}}
      */
     @GetMapping("/doctor/{doctorId}")
     public ResponseEntity<ApiResponse<List<QueueEntryDto>>> getDoctorQueue(@PathVariable Long doctorId) {

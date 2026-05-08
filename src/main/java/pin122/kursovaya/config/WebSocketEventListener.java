@@ -23,8 +23,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * Слушатель событий WebSocket подключений/отключений
- * Использует только Redis для хранения данных сессий и очередей
+ * Слушатель событий WebSocket (подключение и отключение STOMP-сессии).
+ * <p>
+ * При подключении аутентифицированного пациента строит очередь на текущий день в {@link RedisQueueService}, сохраняет
+ * сессию в Redis и отправляет ответ в персональную очередь пользователя. При отключении удаляет сессию и при необходимости
+ * очищает очереди. Соответствие STOMP session id и Redis session id хранится в памяти процесса.
+ *
+ * @see RedisQueueService
+ * @see SessionConnectedEvent
+ * @see SessionDisconnectEvent
  */
 @Component
 public class WebSocketEventListener {
@@ -37,6 +44,12 @@ public class WebSocketEventListener {
     // Маппинг STOMP session ID -> наш Redis session ID
     private final Map<String, String> stompToRedisSessionMap = new ConcurrentHashMap<>();
 
+    /**
+     * @param messagingTemplate   отправка сообщений пользователю по STOMP
+     * @param redisQueueService   очереди и сессии в Redis
+     * @param userRepository      поиск пользователя по email из {@link Authentication}
+     * @param patientRepository   проверка, что пользователь является пациентом
+     */
     public WebSocketEventListener(SimpMessagingTemplate messagingTemplate,
                                   RedisQueueService redisQueueService,
                                   UserRepository userRepository,
@@ -48,11 +61,10 @@ public class WebSocketEventListener {
     }
 
     /**
-     * Обработка нового WebSocket подключения
-     * - Генерирует уникальный sessionId
-     * - Получает appointments на текущий день
-     * - Формирует очередь в Redis
-     * - Сохраняет данные сессии
+     * Обрабатывает успешное подключение WebSocket: генерирует идентификатор сессии Redis, строит очередь на сегодня,
+     * сохраняет {@link WebSocketSessionData}, рассылает {@link RedisQueueService.QueueInitResponse} в {@code /queue/user}.
+     *
+     * @param event событие подключения STOMP с данными пользователя
      */
     @EventListener
     public void handleWebSocketConnectListener(SessionConnectedEvent event) {
@@ -151,10 +163,9 @@ public class WebSocketEventListener {
     }
 
     /**
-     * Обработка отключения WebSocket
-     * - Получает sessionId из маппинга
-     * - Удаляет данные сессии из Redis
-     * - Если нет других сессий пациента - удаляет из очередей
+     * Обрабатывает отключение WebSocket: по STOMP session id находит сессию Redis и удаляет её через {@link RedisQueueService#deleteSession}.
+     *
+     * @param event событие отключения STOMP
      */
     @EventListener
     public void handleWebSocketDisconnectListener(SessionDisconnectEvent event) {
@@ -178,9 +189,10 @@ public class WebSocketEventListener {
     }
     
     /**
-     * Получает Redis sessionId по STOMP sessionId
-     * @param stompSessionId STOMP session ID
-     * @return Redis session ID или null
+     * Возвращает идентификатор сессии Redis по идентификатору STOMP-сессии.
+     *
+     * @param stompSessionId идентификатор сессии STOMP
+     * @return идентификатор сессии в Redis или {@code null}, если маппинг отсутствует
      */
     public String getRedisSessionId(String stompSessionId) {
         return stompToRedisSessionMap.get(stompSessionId);

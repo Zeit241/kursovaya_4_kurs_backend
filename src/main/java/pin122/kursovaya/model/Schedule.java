@@ -6,6 +6,9 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 
+/**
+ * JPA-сущность расписания врача на день: интервал работы, кабинет и длительность слотов для генерации приёмов.
+ */
 @Entity
 @Data
 @Table(name = "doctor_schedules", 

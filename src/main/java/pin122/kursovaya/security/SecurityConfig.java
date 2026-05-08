@@ -23,6 +23,12 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Конфигурация Spring Security: JWT-фильтр, stateless-сессии, CORS и правила доступа к эндпоинтам.
+ *
+ * @see JwtAuthenticationFilter
+ * @see JwtAuthenticationEntryPoint
+ */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -32,6 +38,11 @@ public class SecurityConfig {
     private final UserDetailsService userDetailsService;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
 
+    /**
+     * @param jwtAuthFilter               фильтр разбора Bearer JWT
+     * @param userDetailsService          сервис загрузки пользователя для {@link DaoAuthenticationProvider}
+     * @param jwtAuthenticationEntryPoint ответ 401 при отсутствии или невалидном JWT
+     */
     public SecurityConfig(JwtAuthenticationFilter jwtAuthFilter, UserDetailsService userDetailsService,
                          JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint) {
         this.jwtAuthFilter = jwtAuthFilter;
@@ -39,6 +50,13 @@ public class SecurityConfig {
         this.jwtAuthenticationEntryPoint = jwtAuthenticationEntryPoint;
     }
 
+    /**
+     * Собирает цепочку фильтров: отключение CSRF, CORS, публичные пути ({@code /api/auth/**} и др.), JWT перед {@link UsernamePasswordAuthenticationFilter}.
+     *
+     * @param http билдер {@link HttpSecurity}
+     * @return настроенная цепочка
+     * @throws Exception при ошибке конфигурации Spring Security
+     */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -64,6 +82,11 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * Провайдер аутентификации по логину/паролю с {@link BCryptPasswordEncoder}.
+     *
+     * @return {@link DaoAuthenticationProvider}
+     */
     @Bean
     public AuthenticationProvider authenticationProvider() {
         DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
@@ -72,16 +95,31 @@ public class SecurityConfig {
         return authProvider;
     }
 
+    /**
+     * Экспортирует стандартный {@link AuthenticationManager} из конфигурации Spring Boot.
+     *
+     * @param config конфигурация аутентификации
+     * @return менеджер аутентификации
+     * @throws Exception при ошибке инициализации
+     */
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
     }
 
+    /**
+     * @return {@link BCryptPasswordEncoder} со strength 12
+     */
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder(12);
     }
 
+    /**
+     * Настраивает CORS для всех путей: разрешённые методы, заголовки и {@code Authorization} в exposed headers.
+     *
+     * @return источник конфигурации CORS для {@code /**}
+     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();

@@ -6,6 +6,9 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
+/**
+ * DTO агрегированных данных главной панели: топ специализаций, топ врачей, ближайшие записи пользователя.
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -19,6 +22,9 @@ public class DashboardDto {
     // Запланированные записи текущего пользователя (с информацией о враче)
     private List<DashboardAppointmentDto> upcomingAppointments;
 }
+
+
+
 
 
 

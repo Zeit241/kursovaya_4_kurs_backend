@@ -5,6 +5,9 @@ import jakarta.persistence.*;
 import lombok.Data;
 import java.time.OffsetDateTime;
 
+/**
+ * JPA-сущность приёма (записи на слот): расписание, врач, пациент, кабинет, услуга, диагноз, статус и клинические текстовые поля.
+ */
 @Data
 @Entity
 @Table(name = "appointments")
@@ -33,6 +36,16 @@ public class Appointment {
     @JsonIgnoreProperties({"schedules"})
     private Room room;
 
+    @ManyToOne
+    @JoinColumn(name = "service_id")
+    @JsonIgnoreProperties({"appointments"})
+    private Service service;
+
+    @ManyToOne
+    @JoinColumn(name = "diagnosis_id")
+    @JsonIgnoreProperties({"appointments"})
+    private Diagnosis diagnosis;
+
     @Column(name = "start_time", nullable = false)
     private OffsetDateTime startTime;
 
@@ -57,9 +70,15 @@ public class Appointment {
 
     @Column(name = "cancel_reason")
     private String cancelReason;
-    
-    @Column(name = "diagnosis")
-    private String diagnosis;
+
+    @Column(columnDefinition = "TEXT")
+    private String complaints;
+
+    @Column(columnDefinition = "TEXT")
+    private String anamnesis;
+
+    @Column(columnDefinition = "TEXT")
+    private String recommendations;
 
     // Getters, Setters
 }

@@ -4,6 +4,9 @@ import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 import lombok.Data;
 
+/**
+ * JPA-сущность связи «врач — специализация» (many-to-many через отдельную таблицу).
+ */
 @Data
 @Entity
 @Table(name = "doctor_specializations",

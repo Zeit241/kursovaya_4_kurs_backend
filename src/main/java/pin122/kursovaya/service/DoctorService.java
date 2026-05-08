@@ -1,6 +1,7 @@
 package pin122.kursovaya.service;
 
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -22,6 +23,7 @@ import pin122.kursovaya.model.Specialization;
 import pin122.kursovaya.model.User;
 import jakarta.persistence.EntityManager;
 import pin122.kursovaya.repository.AppointmentRepository;
+import pin122.kursovaya.repository.BookingCatalogRepository;
 import pin122.kursovaya.repository.DoctorRepository;
 import pin122.kursovaya.repository.QueueEntryRepository;
 import pin122.kursovaya.repository.ReviewRepository;
@@ -29,16 +31,27 @@ import pin122.kursovaya.repository.RoleRepository;
 import pin122.kursovaya.repository.ScheduleRepository;
 import pin122.kursovaya.repository.SpecializationRepository;
 import pin122.kursovaya.repository.UserRepository;
+import pin122.kursovaya.utils.DoctorPhotoUrls;
 import pin122.kursovaya.utils.FormatUtils;
 
 import java.time.OffsetDateTime;
-import java.util.Base64;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
+/**
+ * Операции с врачами: списки с пагинацией и сортировкой, поиск, CRUD, каскадное удаление связанных сущностей.
+ */
 @Service
 public class DoctorService {
+
+    @Value("${app.directus.public-url:http://localhost:8055}")
+    private String directusPublicUrl;
+
+    private final BookingCatalogRepository bookingCatalogRepository;
     private final DoctorRepository doctorRepository;
     private final ReviewRepository reviewRepository;
     private final SpecializationRepository specializationRepository;
@@ -49,11 +62,25 @@ public class DoctorService {
     private final ScheduleRepository scheduleRepository;
     private final QueueEntryRepository queueEntryRepository;
 
-    public DoctorService(DoctorRepository doctorRepository, ReviewRepository reviewRepository, 
+    /**
+     * @param bookingCatalogRepository каталог записи (врачи по услуге)
+     * @param doctorRepository         сущности {@link Doctor}
+     * @param reviewRepository         отзывы врача
+     * @param specializationRepository справочник и связи специализаций
+     * @param userRepository           пользователи врачей
+     * @param roleRepository           роль {@code doctor}
+     * @param entityManager            принудительный flush при смене специализаций
+     * @param appointmentRepository    приёмы врача
+     * @param scheduleRepository       расписания врача
+     * @param queueEntryRepository     очередь к врачу
+     */
+    public DoctorService(BookingCatalogRepository bookingCatalogRepository,
+                        DoctorRepository doctorRepository, ReviewRepository reviewRepository, 
                         SpecializationRepository specializationRepository, UserRepository userRepository,
                         RoleRepository roleRepository, EntityManager entityManager,
                         AppointmentRepository appointmentRepository, ScheduleRepository scheduleRepository,
                         QueueEntryRepository queueEntryRepository) {
+        this.bookingCatalogRepository = bookingCatalogRepository;
         this.doctorRepository = doctorRepository;
         this.reviewRepository = reviewRepository;
         this.specializationRepository = specializationRepository;
@@ -65,6 +92,15 @@ public class DoctorService {
         this.queueEntryRepository = queueEntryRepository;
     }
 
+    /**
+     * Список врачей с опциональной пагинацией и сортировкой; рейтинг сортируется в памяти.
+     *
+     * @param limit     максимум записей или {@code null}
+     * @param offset    смещение или {@code null}
+     * @param sortBy    поле сортировки (в т.ч. {@code rating})
+     * @param sortOrder {@code asc} или {@code desc}
+     * @return список {@link DoctorDto}
+     */
     @Transactional(readOnly = true)
     public List<DoctorDto> getAllDoctors(Integer limit, Integer offset, String sortBy, String sortOrder) {
         List<Doctor> doctors;
@@ -129,6 +165,92 @@ public class DoctorService {
         return doctorDtos;
     }
 
+    /**
+     * Врачи, которые могут оказывать указанную услугу (через связи специализаций), с опциональным текстовым фильтром.
+     *
+     * @param serviceId идентификатор услуги
+     * @param query     подстрока поиска по ФИО/специализации или {@code null}
+     * @param limit     лимит выборки
+     * @param offset    смещение
+     * @param sortBy    поле сортировки
+     * @param sortOrder направление сортировки
+     * @return список {@link DoctorDto}
+     */
+    @Transactional(readOnly = true)
+    public List<DoctorDto> listDoctorsForService(Long serviceId, String query, Integer limit, Integer offset,
+                                                   String sortBy, String sortOrder) {
+        List<Long> idList = bookingCatalogRepository.findDoctorIdsByServiceId(serviceId);
+        if (idList.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> allowed = new HashSet<>(idList);
+        List<Doctor> doctors;
+        if (query != null && !query.trim().isEmpty()) {
+            doctors = doctorRepository.searchByFullNameOrSpecialization(query.trim()).stream()
+                    .filter(d -> allowed.contains(d.getId()))
+                    .toList();
+        } else {
+            doctors = doctorRepository.findAllByIdInWithDetails(idList);
+        }
+
+        List<DoctorDto> doctorDtos = doctors.stream().map(this::mapToDto).toList();
+        boolean sortByRating = sortBy != null && "rating".equalsIgnoreCase(sortBy);
+        if (sortByRating) {
+            Comparator<DoctorDto> ratingComparator = Comparator.comparing(
+                    (DoctorDto d) -> d.getRating() != null ? d.getRating() : 0.0,
+                    Comparator.nullsLast(Double::compareTo)
+            );
+            if ("desc".equalsIgnoreCase(sortOrder)) {
+                ratingComparator = ratingComparator.reversed();
+            }
+            doctorDtos = doctorDtos.stream().sorted(ratingComparator).toList();
+            return sliceDoctorDtos(doctorDtos, limit, offset);
+        }
+
+        if (sortBy != null && !sortBy.trim().isEmpty()) {
+            Comparator<Doctor> comparator = createComparator(sortBy, sortOrder);
+            if (comparator != null) {
+                java.util.Map<Long, Doctor> doctorMap = doctors.stream()
+                        .collect(Collectors.toMap(Doctor::getId, d -> d));
+                doctorDtos = doctorDtos.stream()
+                        .sorted((d1, d2) -> comparator.compare(doctorMap.get(d1.getId()), doctorMap.get(d2.getId())))
+                        .toList();
+            }
+        }
+
+        return sliceDoctorDtos(doctorDtos, limit, offset);
+    }
+
+    /**
+     * Применяет limit/offset к уже отсортированному списку DTO.
+     *
+     * @param doctorDtos полный список
+     * @param limit      лимит или {@code null}
+     * @param offset     смещение или {@code null}
+     * @return подсписок или исходный список
+     */
+    private static List<DoctorDto> sliceDoctorDtos(List<DoctorDto> doctorDtos, Integer limit, Integer offset) {
+        if (limit != null && offset != null) {
+            int start = Math.min(offset, doctorDtos.size());
+            int end = Math.min(start + limit, doctorDtos.size());
+            return doctorDtos.subList(start, end);
+        }
+        if (limit != null) {
+            return doctorDtos.subList(0, Math.min(limit, doctorDtos.size()));
+        }
+        return doctorDtos;
+    }
+
+    /**
+     * Полнотекстовый поиск врачей с ручной сортировкой и пагинацией в памяти.
+     *
+     * @param query     строка поиска
+     * @param limit     лимит
+     * @param offset    смещение
+     * @param sortBy    поле сортировки
+     * @param sortOrder направление
+     * @return список {@link DoctorDto}
+     */
     @Transactional(readOnly = true)
     public List<DoctorDto> searchDoctors(String query, Integer limit, Integer offset, String sortBy, String sortOrder) {
         List<Doctor> doctors = doctorRepository.searchByFullNameOrSpecialization(query);
@@ -184,20 +306,33 @@ public class DoctorService {
         return doctorDtos;
     }
 
+    /**
+     * Врач по идентификатору с данными для карточки (рейтинг, специализации, фото — публичный URL).
+     *
+     * @param id первичный ключ
+     * @return {@link DoctorDto}, если найден
+     */
     @Transactional(readOnly = true)
     public Optional<DoctorDto> getDoctorById(Long id) {
         return doctorRepository.findById(id).stream().map(this::mapToDto).findFirst();
     }
     
 
+    /**
+     * Сохраняет сущность врача и возвращает DTO.
+     *
+     * @param doctor валидируемая сущность {@link Doctor}
+     * @return {@link DoctorDto}
+     */
     public DoctorDto saveDoctor(@Valid Doctor doctor) {
         return mapToDto(doctorRepository.save(doctor));
     }
     
     /**
-     * Создаёт нового врача с возможностью добавления специализаций
-     * @param request DTO с данными врача и списком ID специализаций
-     * @return созданный врач в виде DTO
+     * Создаёт пользователя с ролью {@code doctor}, профиль врача и опционально связи со специализациями; фото — UUID файла Directus или полный URL.
+     *
+     * @param request данные создания
+     * @return {@link DoctorDto} сохранённого врача
      */
     @Transactional
     public DoctorDto createDoctor(@Valid CreateDoctorRequest request) {
@@ -213,7 +348,7 @@ public class DoctorService {
         user.setUpdatedAt(OffsetDateTime.now());
         
         // Назначаем роль "doctor"
-        roleRepository.findByCode("doctor").ifPresent(role -> user.getRoles().add(role));
+        roleRepository.findByCode("doctor").ifPresent(user::setRole);
         
         // Сохраняем пользователя
         User savedUser = userRepository.save(user);
@@ -221,27 +356,15 @@ public class DoctorService {
         // Создаём врача
         Doctor doctor = new Doctor();
         doctor.setUser(savedUser);
-        doctor.setDisplayName(request.getDisplayName());
         doctor.setBio(request.getBio());
         doctor.setExperienceYears(request.getExperienceYears());
         doctor.setCreatedAt(OffsetDateTime.now());
         doctor.setUpdatedAt(OffsetDateTime.now());
         
-        // Обрабатываем фото (Base64 -> byte[])
-        if (request.getPhoto() != null && !request.getPhoto().isEmpty()) {
-            try {
-                String photoData = request.getPhoto();
-                // Убираем префикс Data URL если он есть (например: data:image/jpeg;base64,)
-                if (photoData.contains(",")) {
-                    photoData = photoData.substring(photoData.indexOf(",") + 1);
-                }
-                byte[] photoBytes = Base64.getDecoder().decode(photoData);
-                doctor.setPhoto(photoBytes);
-            } catch (IllegalArgumentException e) {
-                // Невалидный Base64, игнорируем
-            }
+        if (request.getPhoto() != null) {
+            applyPhotoFromRequest(doctor, request.getPhoto());
         }
-        
+
         // Сохраняем врача
         Doctor savedDoctor = doctorRepository.save(doctor);
         
@@ -262,6 +385,11 @@ public class DoctorService {
         return mapToDto(savedDoctor);
     }
 
+    /**
+     * Удаляет врача вместе с приёмами, расписаниями, очередью и отзывами; пользователь удаляется каскадом.
+     *
+     * @param id идентификатор врача; при отсутствии записи метод завершается без ошибки
+     */
     @Transactional
     public void deleteDoctor(Long id) {
         Optional<Doctor> doctorOpt = doctorRepository.findById(id);
@@ -303,10 +431,11 @@ public class DoctorService {
     }
     
     /**
-     * Обновляет данные врача с возможностью изменения специализаций
-     * @param id ID врача для обновления
-     * @param request DTO с новыми данными врача
-     * @return обновлённый врач в виде DTO или empty если врач не найден
+     * Частично обновляет пользователя и профиль врача; список специализаций при передаче полностью заменяется.
+     *
+     * @param id      идентификатор врача
+     * @param request новые данные
+     * @return {@link DoctorDto} или пустой {@link Optional}, если врач не найден
      */
     @Transactional
     public Optional<DoctorDto> updateDoctor(Long id, @Valid UpdateDoctorRequest request) {
@@ -340,10 +469,7 @@ public class DoctorService {
             userRepository.save(user);
         }
         
-        // Обновляем данные врача
-        if (request.getDisplayName() != null) {
-            doctor.setDisplayName(request.getDisplayName());
-        }
+        // Обновляем данные врача (отображаемое имя берётся из ФИО пользователя)
         if (request.getBio() != null) {
             doctor.setBio(request.getBio());
         }
@@ -351,23 +477,8 @@ public class DoctorService {
             doctor.setExperienceYears(request.getExperienceYears());
         }
         
-        // Обрабатываем фото (Base64 -> byte[])
         if (request.getPhoto() != null) {
-            if (request.getPhoto().isEmpty()) {
-                doctor.setPhoto(null);
-            } else {
-                try {
-                    String photoData = request.getPhoto();
-                    // Убираем префикс Data URL если он есть (например: data:image/jpeg;base64,)
-                    if (photoData.contains(",")) {
-                        photoData = photoData.substring(photoData.indexOf(",") + 1);
-                    }
-                    byte[] photoBytes = Base64.getDecoder().decode(photoData);
-                    doctor.setPhoto(photoBytes);
-                } catch (IllegalArgumentException e) {
-                    // Невалидный Base64, игнорируем
-                }
-            }
+            applyPhotoFromRequest(doctor, request.getPhoto());
         }
         
         doctor.setUpdatedAt(OffsetDateTime.now());
@@ -396,6 +507,13 @@ public class DoctorService {
         return Optional.of(mapToDto(savedDoctor));
     }
 
+    /**
+     * Строит {@link Sort} для Spring Data по строковым параметрам API (рейтинг возвращает {@code null} — сортировка в памяти).
+     *
+     * @param sortBy    имя поля
+     * @param sortOrder направление
+     * @return объект сортировки или {@code null}
+     */
     private Sort createSort(String sortBy, String sortOrder) {
         if (sortBy == null || sortBy.trim().isEmpty()) {
             return null;
@@ -425,6 +543,13 @@ public class DoctorService {
         return Sort.by(direction, sortField);
     }
     
+    /**
+     * Компаратор сущностей {@link Doctor} для сортировки результатов поиска в памяти.
+     *
+     * @param sortBy    поле
+     * @param sortOrder направление
+     * @return компаратор или {@code null} для рейтинга/неизвестного поля
+     */
     private Comparator<Doctor> createComparator(String sortBy, String sortOrder) {
         boolean ascending = !"desc".equalsIgnoreCase(sortOrder);
         
@@ -458,6 +583,17 @@ public class DoctorService {
         return ascending ? comparator : comparator.reversed();
     }
 
+    private void applyPhotoFromRequest(Doctor doctor, String raw) {
+        String normalized = DoctorPhotoUrls.normalizeForStorage(raw);
+        doctor.setPhoto(normalized);
+    }
+
+    /**
+     * Собирает {@link DoctorDto} с пользователем, рейтингом, специализациями и фото (публичный URL ассета Directus).
+     *
+     * @param doctor сущность (ожидается связанный {@link User})
+     * @return DTO для API
+     */
     @Transactional(readOnly = true)
     private DoctorDto mapToDto(Doctor doctor) {
         User user = doctor.getUser();
@@ -494,11 +630,7 @@ public class DoctorService {
                         .toList()
                 : List.of();
 
-        // Конвертируем фото в Base64 строку
-        String photoBase64 = null;
-        if (doctor.getPhoto() != null && doctor.getPhoto().length > 0) {
-            photoBase64 = Base64.getEncoder().encodeToString(doctor.getPhoto());
-        }
+        String photoUrl = DoctorPhotoUrls.toPublicImageUrl(doctor.getPhoto(), directusPublicUrl);
 
         DoctorDto doctorDto = new DoctorDto(
                 doctor.getId(),
@@ -506,7 +638,7 @@ public class DoctorService {
                 doctor.getDisplayName(),
                 doctor.getBio(),
                 doctor.getExperienceYears(),
-                photoBase64,
+                photoUrl,
                 averageRating,
                 reviewCount != null ? reviewCount.intValue() : 0,
                 doctor.getCreatedAt(),

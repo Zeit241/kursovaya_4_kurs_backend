@@ -32,7 +32,6 @@ class AppointmentTest {
         doctor = new Doctor();
         doctor.setId(1L);
         doctor.setUser(doctorUser);
-        doctor.setDisplayName("Д-р Врачев");
         doctor.setExperienceYears(10);
 
         // Создаём пользователя для пациента
@@ -104,15 +103,15 @@ class AppointmentTest {
         assertEquals("available", appointment.getStatus());
     }
 
-    @Test
-    @DisplayName("Установка диагноза")
-    void setDiagnosis_updatesDiagnosis() {
-        assertNull(appointment.getDiagnosis());
-        
-        appointment.setDiagnosis("ОРВИ");
-        
-        assertEquals("ОРВИ", appointment.getDiagnosis());
-    }
+//    @Test
+//    @DisplayName("Установка диагноза")
+//    void setDiagnosis_updatesDiagnosis() {
+//        assertNull(appointment.getDiagnosis());
+//
+//        appointment.setDiagnosis("ОРВИ");
+//
+//        assertEquals("ОРВИ", appointment.getDiagnosis());
+//    }
 
     @Test
     @DisplayName("Установка причины отмены")
@@ -225,7 +224,7 @@ class AppointmentTest {
     @DisplayName("Получение информации о враче")
     void getDoctorInfo_returnsCorrectData() {
         assertNotNull(appointment.getDoctor());
-        assertEquals("Д-р Врачев", appointment.getDoctor().getDisplayName());
+        assertEquals("Врачев Алексей", appointment.getDoctor().getDisplayName());
         assertEquals(10, appointment.getDoctor().getExperienceYears());
         assertEquals("doctor@clinic.com", appointment.getDoctor().getUser().getEmail());
     }

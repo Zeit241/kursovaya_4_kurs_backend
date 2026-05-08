@@ -7,7 +7,7 @@ import lombok.Data;
 import java.util.List;
 
 /**
- * DTO для обновления данных врача с возможностью изменения специализаций
+ * Тело REST-запроса на обновление профиля врача и, при необходимости, списка специализаций (по идентификаторам).
  */
 @Data
 public class UpdateDoctorRequest {
@@ -15,7 +15,7 @@ public class UpdateDoctorRequest {
     @Valid
     private UserDto user;
     
-    @NotBlank(message = "Отображаемое имя не может быть пустым")
+    /** Устарело: не сохраняется в БД; меняйте ФИО в блоке user. */
     private String displayName;
     
     @Size(max = 50, message = "Описание должно содержать до 50 символов")
@@ -25,7 +25,8 @@ public class UpdateDoctorRequest {
     @Max(value = 80, message = "Опыт не может быть больше 80")
     private Integer experienceYears;
     
-    private String photo; // Base64-кодированное изображение
+    /** UUID файла в Directus или абсолютный URL; не base64. */
+    private String photo;
     
     /**
      * Список ID специализаций для назначения врачу.

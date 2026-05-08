@@ -6,12 +6,17 @@ import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import pin122.kursovaya.utils.FormatUtils;
+
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * JPA-сущность профиля врача: связь с {@link User}, биография, стаж, фото, коллекции приёмов и привязок к специализациям.
+ */
 @Data
 @Entity
 @Table(name = "doctors")
@@ -23,19 +28,31 @@ public class Doctor {
 
     @OneToOne
     @JsonBackReference
-    @JoinColumn(name = "user_id", nullable = false, unique = true)
+    @JoinColumn(name = "user_id", unique = true)
     private User user;
 
-    @Column(name = "display_name", nullable = false)
-    private String displayName;
+    private Boolean hide;
 
     private String bio;
+
+    /**
+     * Отображаемое имя врача, вычисляемое из ФИО связанного пользователя (не сохраняется в БД).
+     *
+     * @return строка для интерфейса или отчётов
+     */
+    @Transient
+    public String getDisplayName() {
+        return FormatUtils.doctorDisplayName(user);
+    }
     
     @Column(name = "experience_years")
     private Integer experienceYears;
     
-    @Column(name = "photo", columnDefinition = "BYTEA")
-    private byte[] photo;
+    /**
+     * UUID файла в Directus ({@code directus_files.id}) или абсолютный URL к ассету; бинарное хранение не используется.
+     */
+    @Column(name = "photo", length = 1024)
+    private String photo;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt = OffsetDateTime.now();

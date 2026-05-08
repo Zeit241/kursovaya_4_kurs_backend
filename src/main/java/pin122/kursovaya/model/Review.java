@@ -3,6 +3,9 @@ import jakarta.persistence.*;
 import lombok.Data;
 import java.time.OffsetDateTime;
 
+/**
+ * JPA-сущность отзыва пациента о приёме: уникальная связь с приёмом, оценка и текст.
+ */
 @Data
 @Entity
 @Table(name = "reviews")
@@ -26,9 +29,10 @@ public class Review {
     @Column(nullable = false)
     private Short rating; // 1-5
 
+    @Column(name = "review_text")
     private String reviewText;
 
-    @Column(nullable = false)
+    @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
     // Getters, Setters

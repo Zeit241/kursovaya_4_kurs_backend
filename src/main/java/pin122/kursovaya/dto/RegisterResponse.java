@@ -4,6 +4,9 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * Ответ REST API после регистрации пользователя без профиля пациента: JWT и {@link UserDto}.
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

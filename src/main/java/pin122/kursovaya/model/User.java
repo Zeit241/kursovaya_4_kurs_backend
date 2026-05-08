@@ -8,13 +8,14 @@ import lombok.EqualsAndHashCode;
 import pin122.kursovaya.dto.UserDto;
 
 import java.time.OffsetDateTime;
-import java.util.HashSet;
-import java.util.Set;
 
+/**
+ * JPA-сущность учётной записи: контакты, хэш пароля, ФИО, роль, опциональные профили {@link Patient} и {@link Doctor}.
+ */
 @Data
 @Entity
 @Table(name = "users")
-@EqualsAndHashCode(exclude = {"patient", "doctor", "roles"})
+@EqualsAndHashCode(exclude = {"patient", "doctor", "role"})
 public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -56,15 +57,13 @@ public class User {
     @JsonManagedReference
     private Doctor doctor;
 
-    @ManyToMany
-    @JoinTable(
-            name = "user_roles",
-            joinColumns = @JoinColumn(name = "user_id"),
-            inverseJoinColumns = @JoinColumn(name = "role_id")
-    )
-    @JsonIgnore
-    private Set<Role> roles = new HashSet<>();
+    @ManyToOne
+    @JoinColumn(name = "role_id")
+    private Role role;
 
+    /**
+     * @param userDto DTO с полями пользователя; временные метки создания и обновления выставляются текущим моментом
+     */
     public User(UserDto userDto) {
         id = userDto.getId();
         email = userDto.getEmail();

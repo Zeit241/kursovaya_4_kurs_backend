@@ -11,8 +11,9 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
- * Фоновая задача для проверки просроченных приёмов
- * Запускается каждую минуту и автоматически меняет статус просроченных приёмов на 'no_show'
+ * Зарезервированная фоновая задача для проверки просроченных приёмов.
+ *
+ * <p>Планировка отключена; ранее предполагалось переводить статусы в {@code no_show}. Сейчас {@link #checkExpiredAppointments()} не выполняет действий.
  */
 @Component
 public class AppointmentExpirationTask {
@@ -22,6 +23,10 @@ public class AppointmentExpirationTask {
     private final AppointmentRepository appointmentRepository;
     private final AppointmentService appointmentService;
 
+    /**
+     * @param appointmentRepository репозиторий приёмов
+     * @param appointmentService    сервис приёмов
+     */
     public AppointmentExpirationTask(AppointmentRepository appointmentRepository,
                                      AppointmentService appointmentService) {
         this.appointmentRepository = appointmentRepository;
@@ -29,11 +34,9 @@ public class AppointmentExpirationTask {
     }
 
     /**
-     * Проверяет просроченные приёмы каждую минуту
-     * Приёмы со статусом 'scheduled' или 'confirmed', у которых endTime < now()
-     * автоматически получают статус 'no_show' и удаляются из очереди
-     * 
-     * ОТКЛЮЧЕНО: проверки времени, которые переводят статус приема, убраны
+     * Ранее: приёмы со статусом {@code scheduled}/{@code confirmed} с {@code endTime} в прошлом переводились в {@code no_show}.
+     *
+     * <p>Сейчас проверки отключены; аннотация {@link Scheduled} закомментирована.
      */
     // @Scheduled(fixedRate = 60_000) // каждую минуту
     public void checkExpiredAppointments() {
@@ -41,6 +44,4 @@ public class AppointmentExpirationTask {
         return;
     }
 }
-
-
 

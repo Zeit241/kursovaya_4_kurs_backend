@@ -1,6 +1,7 @@
 package pin122.kursovaya.service;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import pin122.kursovaya.dto.CreateUserDto;
 import pin122.kursovaya.dto.CreateUserWithPatientDto;
 import pin122.kursovaya.dto.CurrentUserDto;
@@ -20,8 +21,10 @@ import pin122.kursovaya.utils.SecurityUtils;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.HashMap;
 
+/**
+ * Операции с пользователями: список, текущий пользователь, регистрация, сохранение, статистика по пациенту.
+ */
 @Service
 public class UserService {
 
@@ -30,43 +33,85 @@ public class UserService {
     private final AppointmentRepository appointmentRepository;
     private final ReviewRepository reviewRepository;
     private final QueueEntryRepository queueEntryRepository;
+    private final CurrentUserDtoFactory currentUserDtoFactory;
 
+    /**
+     * @param userRepository          репозиторий пользователей
+     * @param roleRepository          справочник ролей
+     * @param appointmentRepository   записи на приём (для статистики)
+     * @param reviewRepository        отзывы (для статистики)
+     * @param queueEntryRepository    очередь (для статистики)
+     * @param currentUserDtoFactory   фабрика {@link CurrentUserDto} с дозаполнением doctorId/patientId
+     */
     public UserService(UserRepository userRepository, RoleRepository roleRepository,
                        AppointmentRepository appointmentRepository,
                        ReviewRepository reviewRepository,
-                       QueueEntryRepository queueEntryRepository) {
+                       QueueEntryRepository queueEntryRepository,
+                       CurrentUserDtoFactory currentUserDtoFactory) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.appointmentRepository = appointmentRepository;
         this.reviewRepository = reviewRepository;
         this.queueEntryRepository = queueEntryRepository;
+        this.currentUserDtoFactory = currentUserDtoFactory;
     }
 
+    /**
+     * Возвращает всех пользователей в виде {@link UserDto}.
+     *
+     * @return список DTO
+     */
     public List<UserDto> getAllUsers() {
         return userRepository.findAll().stream()
                 .map(UserDto::new)
                 .toList();
     }
 
+    /**
+     * Ищет пользователя по идентификатору.
+     *
+     * @param id первичный ключ
+     * @return {@link UserDto}, если найден
+     */
     public Optional<UserDto> getUserById(Long id) {
         return userRepository.findById(id)
                 .map(UserDto::new);
     }
 
+    /**
+     * Возвращает текущего аутентифицированного пользователя (без дозаполнения patientId/doctorId).
+     *
+     * @return {@link UserDto} из {@link SecurityUtils#getCurrentUser(UserRepository)}
+     */
     public Optional<UserDto> getCurrentUser() {
         return SecurityUtils.getCurrentUser(userRepository)
                 .map(UserDto::new);
     }
 
+    /**
+     * Загружает текущего пользователя с профилями врача/пациента и собирает {@link CurrentUserDto}.
+     *
+     * @return непустой {@link Optional}, если в контексте безопасности есть email и пользователь найден в БД
+     */
+    @Transactional(readOnly = true)
     public Optional<CurrentUserDto> getCurrentUserWithIds() {
         Optional<String> emailOpt = SecurityUtils.getCurrentUserEmail();
         if (emailOpt.isEmpty()) {
             return Optional.empty();
         }
         User user = userRepository.findByEmailWithPatientAndDoctor(emailOpt.get());
-        return user != null ? Optional.of(new CurrentUserDto(user)) : Optional.empty();
+        if (user == null) {
+            return Optional.empty();
+        }
+        return Optional.of(currentUserDtoFactory.build(user));
     }
 
+    /**
+     * Регистрирует пользователя с ролью patient и вложенной сущностью {@link Patient}, если email/телефон уникальны.
+     *
+     * @param userDto данные регистрации (ФИО одной строкой, email, телефон, пароль)
+     * @return созданный {@link UserDto} или пустой {@link Optional}, если пользователь с таким email или телефоном уже есть
+     */
     public Optional<UserDto> createUser(CreateUserDto userDto) {
        Optional<User> user = userRepository.findByEmailOrPhone(userDto.getEmail(), userDto.getPhone());
 
@@ -79,49 +124,60 @@ public class UserService {
            String[] fio = userDto.getFio().trim().split("\\s+");
            usr.setEmail(userDto.getEmail());
            usr.setPhone(FormatUtils.normalizePhone(userDto.getPhone()));
-           
-           // Гибкая обработка ФИО
+
            if (fio.length >= 3) {
-               // Фамилия Имя Отчество
                usr.setLastName(fio[0]);
                usr.setFirstName(fio[1]);
                usr.setMiddleName(fio[2]);
            } else if (fio.length == 2) {
-               // Фамилия Имя
                usr.setLastName(fio[0]);
                usr.setFirstName(fio[1]);
                usr.setMiddleName(null);
            } else if (fio.length == 1) {
-               // Только имя
                usr.setFirstName(fio[0]);
                usr.setLastName(null);
                usr.setMiddleName(null);
            } else {
-               // Пустая строка
                usr.setFirstName(null);
                usr.setLastName(null);
                usr.setMiddleName(null);
            }
-           
+
            usr.setPasswordHash(EncryptPassword.hashPassword(userDto.getPassword()));
            Patient patient = new Patient();
            patient.setUser(usr);
            usr.setPatient(patient);
-           // назначаем роль по умолчанию "patient"
-           roleRepository.findByCode("patient").ifPresent(role -> usr.getRoles().add(role));
+           roleRepository.findByCode("patient").ifPresent(usr::setRole);
            User createdUsr = userRepository.save(usr);
            return Optional.of(new UserDto(createdUsr));
        }
     }
 
+    /**
+     * Сохраняет пользователя из DTO (конструктор сущности {@link User} из {@link UserDto}).
+     *
+     * @param user DTO с данными для сохранения
+     * @return сохранённая сущность {@link User}
+     */
     public User saveUser(UserDto user) {
         return userRepository.save(new User(user));
     }
 
+    /**
+     * Удаляет пользователя по идентификатору.
+     *
+     * @param id первичный ключ
+     */
     public void deleteUser(Long id) {
         userRepository.deleteById(id);
     }
 
+    /**
+     * Создаёт пользователя и полноценного пациента при уникальном email/телефоне.
+     *
+     * @param dto email, телефон, пароль, ФИО и медицинские поля пациента
+     * @return {@link PatientDto} с вложенным {@link UserDto} или пустой {@link Optional}, если дубликат
+     */
     public Optional<PatientDto> createUserWithPatient(CreateUserWithPatientDto dto) {
         Optional<User> existingUser = userRepository.findByEmailOrPhone(dto.getEmail(), dto.getPhone());
 
@@ -136,24 +192,19 @@ public class UserService {
         user.setEmail(dto.getEmail());
         user.setPhone(FormatUtils.normalizePhone(dto.getPhone()));
 
-        // Гибкая обработка ФИО
         if (fio.length >= 3) {
-            // Фамилия Имя Отчество
             user.setLastName(fio[0]);
             user.setFirstName(fio[1]);
             user.setMiddleName(fio[2]);
         } else if (fio.length == 2) {
-            // Фамилия Имя
             user.setLastName(fio[0]);
             user.setFirstName(fio[1]);
             user.setMiddleName(null);
         } else if (fio.length == 1) {
-            // Только имя
             user.setFirstName(fio[0]);
             user.setLastName(null);
             user.setMiddleName(null);
         } else {
-            // Пустая строка
             user.setFirstName(null);
             user.setLastName(null);
             user.setMiddleName(null);
@@ -161,7 +212,6 @@ public class UserService {
 
         user.setPasswordHash(EncryptPassword.hashPassword(dto.getPassword()));
 
-        // Создаем пациента с полными данными
         Patient patient = new Patient();
         patient.setUser(user);
         patient.setBirthDate(dto.getBirthDate());
@@ -170,13 +220,11 @@ public class UserService {
 
         user.setPatient(patient);
 
-        // Назначаем роль по умолчанию "patient"
-        roleRepository.findByCode("patient").ifPresent(role -> user.getRoles().add(role));
+        roleRepository.findByCode("patient").ifPresent(user::setRole);
 
         User savedUser = userRepository.save(user);
         Patient savedPatient = savedUser.getPatient();
 
-        // Создаем DTO для ответа
         PatientDto patientDto = new PatientDto();
         patientDto.setId(savedPatient.getId());
         patientDto.setUser(new UserDto(savedUser));
@@ -189,6 +237,12 @@ public class UserService {
         return Optional.of(patientDto);
     }
 
+    /**
+     * Считает для текущего пользователя-пациента количество приёмов, отзывов и записей в очереди.
+     *
+     * @return {@link UserStatsDto} или пустой {@link Optional}, если профиль текущего пользователя недоступен;
+     *         для не-пациента возвращаются нулевые счётчики
+     */
     public Optional<UserStatsDto> getUserStats() {
         Optional<CurrentUserDto> currentUserOpt = getCurrentUserWithIds();
         if (currentUserOpt.isEmpty()) {
@@ -197,7 +251,6 @@ public class UserService {
 
         CurrentUserDto currentUser = currentUserOpt.get();
         if (currentUser.getPatientId() == null) {
-            // Если пользователь не является пациентом, возвращаем нулевую статистику
             return Optional.of(new UserStatsDto(0L, 0L, 0L));
         }
 

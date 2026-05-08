@@ -25,6 +25,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+/**
+ * Управление расписаниями врачей и автоматическое порождение слотов {@link Appointment} по длительности интервала.
+ */
 @Service
 public class ScheduleService {
 
@@ -35,7 +38,13 @@ public class ScheduleService {
     private final DoctorRepository doctorRepository;
     private final RoomRepository roomRepository;
 
-    public ScheduleService(ScheduleRepository scheduleRepository, 
+    /**
+     * @param scheduleRepository    хранение {@link Schedule}
+     * @param appointmentRepository создание слотов приёма
+     * @param doctorRepository      проверка врача при создании расписания
+     * @param roomRepository        поиск или создание кабинета
+     */
+    public ScheduleService(ScheduleRepository scheduleRepository,
                           AppointmentRepository appointmentRepository,
                           DoctorRepository doctorRepository,
                           RoomRepository roomRepository) {
@@ -45,12 +54,25 @@ public class ScheduleService {
         this.roomRepository = roomRepository;
     }
 
+    /**
+     * Все расписания врача.
+     *
+     * @param doctorId идентификатор врача
+     * @return список {@link pin122.kursovaya.dto.ScheduleDto}
+     */
     public List<ScheduleDto> getSchedulesByDoctor(Long doctorId) {
         return scheduleRepository.findByDoctorId(doctorId).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Расписания врача; при непустой {@code date} фильтрует по календарной дате.
+     *
+     * @param doctorId идентификатор врача
+     * @param date     день или {@code null} для всех дат
+     * @return список {@link pin122.kursovaya.dto.ScheduleDto}
+     */
     public List<ScheduleDto> getSchedulesByDoctor(Long doctorId, LocalDate date) {
         if (date != null) {
             return scheduleRepository.findByDoctorIdAndDateAt(doctorId, date).stream()
@@ -61,17 +83,34 @@ public class ScheduleService {
         }
     }
 
+    /**
+     * Все расписания в системе.
+     *
+     * @return список {@link pin122.kursovaya.dto.ScheduleDto}
+     */
     public List<ScheduleDto> getAllSchedules() {
         return scheduleRepository.findAll().stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Ищет расписание по идентификатору.
+     *
+     * @param id первичный ключ
+     * @return {@link pin122.kursovaya.dto.ScheduleDto}, если найдено
+     */
     public Optional<ScheduleDto> getScheduleById(Long id) {
         return scheduleRepository.findById(id)
                 .map(this::mapToDto);
     }
 
+    /**
+     * Сохраняет расписание и создаёт для него слоты приёма.
+     *
+     * @param schedule сущность расписания
+     * @return DTO сохранённого расписания
+     */
     @Transactional
     public ScheduleDto saveSchedule(Schedule schedule) {
         Schedule saved = scheduleRepository.save(schedule);
@@ -82,6 +121,14 @@ public class ScheduleService {
         return mapToDto(saved);
     }
 
+    /**
+     * Создаёт расписание из запроса: загрузка врача, разрешение кабинета по id или коду, генерация слотов.
+     *
+     * @param request данные расписания и вложенные DTO врача/кабинета
+     * @return DTO созданного расписания
+     * @throws IllegalArgumentException если не указан врач, врач/кабинет не найдены
+     * @throws IllegalStateException      если поле даты не сохранилось в БД
+     */
     @Transactional
     public ScheduleDto createSchedule(CreateScheduleRequest request) {
         // Загружаем Doctor из базы данных
@@ -143,6 +190,11 @@ public class ScheduleService {
         return mapToDto(saved);
     }
     
+    /**
+     * Нарезает интервал {@code startTime}–{@code endTime} на слоты длительностью {@code slotDurationMinutes} и сохраняет как свободные приёмы.
+     *
+     * @param schedule расписание с заполненными датой, временем и длительностью слота
+     */
     private void createAppointmentsForSchedule(Schedule schedule) {
         if (schedule.getDateAt() == null || schedule.getStartTime() == null || 
             schedule.getEndTime() == null || schedule.getSlotDurationMinutes() == null) {
@@ -174,7 +226,8 @@ public class ScheduleService {
             appointment.setRoom(schedule.getRoom());
             appointment.setStartTime(startOffset);
             appointment.setEndTime(endOffset);
-            appointment.setStatus("scheduled");
+            // Свободный слот для записи: без пациента, статус available (см. AppointmentService / онлайн-запись)
+            appointment.setStatus("available");
             appointment.setSource("admin");
             appointment.setCreatedBy(null);
             
@@ -188,10 +241,21 @@ public class ScheduleService {
         }
     }
 
+    /**
+     * Удаляет расписание по идентификатору.
+     *
+     * @param id первичный ключ
+     */
     public void deleteSchedule(Long id) {
         scheduleRepository.deleteById(id);
     }
 
+    /**
+     * Преобразует сущность в DTO без вложенных объектов (только идентификаторы).
+     *
+     * @param schedule сущность
+     * @return {@link pin122.kursovaya.dto.ScheduleDto}
+     */
     private ScheduleDto mapToDto(Schedule schedule) {
         return new ScheduleDto(
                 schedule.getId(),

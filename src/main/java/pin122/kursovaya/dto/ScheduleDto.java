@@ -6,6 +6,9 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 
+/**
+ * DTO расписания врача для REST: дата, интервал работы, длительность слота, связи с врачом и кабинетом.
+ */
 @Data
 public class ScheduleDto {
     private Long id;
@@ -21,6 +24,17 @@ public class ScheduleDto {
     public ScheduleDto() {
     }
 
+    /**
+     * @param id идентификатор расписания
+     * @param doctorId идентификатор врача
+     * @param roomId идентификатор кабинета
+     * @param dateAt дата
+     * @param startTime время начала смены/интервала
+     * @param endTime время окончания
+     * @param slotDurationMinutes длительность одного слота в минутах
+     * @param createdAt время создания
+     * @param updatedAt время обновления
+     */
     public ScheduleDto(Long id, Long doctorId, Long roomId, LocalDate dateAt,
                        LocalTime startTime, LocalTime endTime, Integer slotDurationMinutes,
                        OffsetDateTime createdAt, OffsetDateTime updatedAt) {

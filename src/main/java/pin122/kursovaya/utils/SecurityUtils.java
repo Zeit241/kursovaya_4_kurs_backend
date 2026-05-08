@@ -8,10 +8,16 @@ import pin122.kursovaya.repository.UserRepository;
 
 import java.util.Optional;
 
+/**
+ * Вспомогательные методы доступа к данным текущего пользователя из {@link SecurityContextHolder}.
+ */
 public class SecurityUtils {
-    
+
     /**
-     * Получает email текущего аутентифицированного пользователя
+     * Возвращает email (логин) текущего аутентифицированного пользователя.
+     *
+     * @return email из {@link UserDetails#getUsername()}, либо пустой {@link Optional}, если контекст безопасности
+     *         не содержит {@link UserDetails}
      */
     public static Optional<String> getCurrentUserEmail() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -21,9 +27,12 @@ public class SecurityUtils {
         }
         return Optional.empty();
     }
-    
+
     /**
-     * Получает объект User текущего аутентифицированного пользователя
+     * Загружает сущность {@link User} по email текущего аутентифицированного пользователя.
+     *
+     * @param userRepository репозиторий для поиска пользователя по email
+     * @return {@link User}, если аутентификация есть и пользователь найден в БД; иначе пустой {@link Optional}
      */
     public static Optional<User> getCurrentUser(UserRepository userRepository) {
         Optional<String> emailOpt = getCurrentUserEmail();
@@ -34,4 +43,3 @@ public class SecurityUtils {
         return user != null ? Optional.of(user) : Optional.empty();
     }
 }
-

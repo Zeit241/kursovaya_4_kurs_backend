@@ -26,7 +26,7 @@ import java.io.IOException;
 import java.time.format.DateTimeFormatter;
 
 /**
- * Сервис для экспорта отчётов в Excel и PDF форматы
+ * Генерация двоичных отчётов: сводная таблица приёмов в Excel/PDF и талон на один приём в PDF (iText, кириллица).
  */
 @Service
 public class ReportExportService {
@@ -36,7 +36,11 @@ public class ReportExportService {
     private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
 
     /**
-     * Генерация Excel отчёта
+     * Строит книгу Excel (.xlsx) со статистикой и таблицей приёмов.
+     *
+     * @param report данные дневного/периодного отчёта
+     * @return содержимое файла
+     * @throws IOException ошибки записи в {@link ByteArrayOutputStream} или POI
      */
     public byte[] generateExcelReport(DailyReportDto report) throws IOException {
         try (Workbook workbook = new XSSFWorkbook();
@@ -52,6 +56,12 @@ public class ReportExportService {
 
             int rowNum = 0;
 
+            String[] tableHeaders = {
+                "№", "Время", "Статус", "Пациент", "Телефон", "Email",
+                "Дата рождения", "Пол", "Полис", "Врач", "Кабинет", "Диагноз",
+                "Жалобы", "Анамнез", "Рекомендации"
+            };
+
             // Заголовок отчёта
             Row titleRow = sheet.createRow(rowNum++);
             org.apache.poi.ss.usermodel.Cell titleCell = titleRow.createCell(0);
@@ -61,7 +71,7 @@ public class ReportExportService {
             }
             titleCell.setCellValue(title);
             titleCell.setCellStyle(titleStyle);
-            sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, 10));
+            sheet.addMergedRegion(new CellRangeAddress(0, 0, 0, tableHeaders.length - 1));
 
             rowNum++; // Пустая строка
 
@@ -86,14 +96,9 @@ public class ReportExportService {
 
             // Заголовки таблицы
             Row headerRow = sheet.createRow(rowNum++);
-            String[] headers = {
-                "№", "Время", "Статус", "Пациент", "Телефон", "Email",
-                "Дата рождения", "Пол", "Полис", "Врач", "Кабинет", "Диагноз"
-            };
-
-            for (int i = 0; i < headers.length; i++) {
+            for (int i = 0; i < tableHeaders.length; i++) {
                 org.apache.poi.ss.usermodel.Cell cell = headerRow.createCell(i);
-                cell.setCellValue(headers[i]);
+                cell.setCellValue(tableHeaders[i]);
                 cell.setCellStyle(headerStyle);
             }
 
@@ -115,10 +120,13 @@ public class ReportExportService {
                 createDataCell(dataRow, 9, appointment.getDoctorDisplayName(), dataStyle);
                 createDataCell(dataRow, 10, appointment.getRoomNumber(), dataStyle);
                 createDataCell(dataRow, 11, appointment.getDiagnosis(), dataStyle);
+                createDataCell(dataRow, 12, appointment.getComplaints(), dataStyle);
+                createDataCell(dataRow, 13, appointment.getAnamnesis(), dataStyle);
+                createDataCell(dataRow, 14, appointment.getRecommendations(), dataStyle);
             }
 
             // Автоподбор ширины колонок
-            for (int i = 0; i < headers.length; i++) {
+            for (int i = 0; i < tableHeaders.length; i++) {
                 sheet.autoSizeColumn(i);
             }
 
@@ -128,7 +136,11 @@ public class ReportExportService {
     }
 
     /**
-     * Генерация PDF отчёта
+     * Формирует PDF в альбомной ориентации с таблицей приёмов (шрифт Arial с поддержкой кириллицы).
+     *
+     * @param report исходные данные отчёта
+     * @return байты PDF
+     * @throws IOException ошибки iText или отсутствие файла шрифта по пути ОС
      */
     public byte[] generatePdfReport(DailyReportDto report) throws IOException {
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
@@ -171,13 +183,13 @@ public class ReportExportService {
             document.add(statsTable);
 
             // Таблица данных
-            float[] columnWidths = {3, 6, 6, 12, 8, 12, 6, 5, 8, 10, 4, 12};
+            float[] columnWidths = {3, 6, 6, 10, 7, 10, 5, 4, 6, 8, 3, 8, 8, 8, 10};
             Table dataTable = new Table(UnitValue.createPercentArray(columnWidths))
                     .setWidth(UnitValue.createPercentValue(100));
 
             // Заголовки
             String[] headers = {"№", "Время", "Статус", "Пациент", "Телефон", "Email",
-                    "Дата рожд.", "Пол", "Полис", "Врач", "Каб.", "Диагноз"};
+                    "Дата рожд.", "Пол", "Полис", "Врач", "Каб.", "Диагноз", "Жалобы", "Анамнез", "Реком."};
             for (String header : headers) {
                 Cell cell = new Cell()
                         .add(new Paragraph(header).setFontSize(8).setBold())
@@ -202,6 +214,9 @@ public class ReportExportService {
                 addDataCell(dataTable, appointment.getDoctorDisplayName(), font);
                 addDataCell(dataTable, appointment.getRoomNumber(), font);
                 addDataCell(dataTable, appointment.getDiagnosis(), font);
+                addDataCell(dataTable, appointment.getComplaints(), font);
+                addDataCell(dataTable, appointment.getAnamnesis(), font);
+                addDataCell(dataTable, appointment.getRecommendations(), font);
             }
 
             document.add(dataTable);
@@ -220,7 +235,11 @@ public class ReportExportService {
     }
 
     /**
-     * Генерация PDF для отдельной записи на приём (талон/направление)
+     * Компактный PDF-талон на один {@link Appointment} (формат A5).
+     *
+     * @param appointment сущность приёма с врачом/пациентом
+     * @return байты PDF
+     * @throws IOException ошибки iText или шрифта
      */
     public byte[] generateAppointmentPdf(Appointment appointment) throws IOException {
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
@@ -305,6 +324,16 @@ public class ReportExportService {
             // Статус
             addInfoRow(infoTable, font, "Статус:", translateStatus(appointment.getStatus()));
 
+            if (appointment.getComplaints() != null && !appointment.getComplaints().isBlank()) {
+                addInfoRow(infoTable, font, "Жалобы:", appointment.getComplaints());
+            }
+            if (appointment.getAnamnesis() != null && !appointment.getAnamnesis().isBlank()) {
+                addInfoRow(infoTable, font, "Анамнез:", appointment.getAnamnesis());
+            }
+            if (appointment.getRecommendations() != null && !appointment.getRecommendations().isBlank()) {
+                addInfoRow(infoTable, font, "Назначения:", appointment.getRecommendations());
+            }
+
             document.add(infoTable);
 
             // Линия разделитель
@@ -334,6 +363,14 @@ public class ReportExportService {
         }
     }
 
+    /**
+     * Добавляет строку «метка — значение» в PDF-таблицу талона.
+     *
+     * @param table таблица iText
+     * @param font  шрифт
+     * @param label подпись поля
+     * @param value значение
+     */
     private void addInfoRow(Table table, PdfFont font, String label, String value) {
         Cell labelCell = new Cell()
                 .add(new Paragraph(label).setFont(font).setFontSize(11).setBold())
@@ -348,8 +385,12 @@ public class ReportExportService {
         table.addCell(valueCell);
     }
 
-    // === Вспомогательные методы для Excel ===
-
+    /**
+     * Стиль заголовков колонок Excel.
+     *
+     * @param workbook книга
+     * @return стиль ячейки
+     */
     private CellStyle createHeaderStyle(Workbook workbook) {
         CellStyle style = workbook.createCellStyle();
         Font font = workbook.createFont();
@@ -367,6 +408,12 @@ public class ReportExportService {
         return style;
     }
 
+    /**
+     * Стиль заголовка листа отчёта.
+     *
+     * @param workbook книга
+     * @return стиль
+     */
     private CellStyle createTitleStyle(Workbook workbook) {
         CellStyle style = workbook.createCellStyle();
         Font font = workbook.createFont();
@@ -377,6 +424,12 @@ public class ReportExportService {
         return style;
     }
 
+    /**
+     * Стиль ячеек с данными таблицы.
+     *
+     * @param workbook книга
+     * @return стиль
+     */
     private CellStyle createDataStyle(Workbook workbook) {
         CellStyle style = workbook.createCellStyle();
         style.setBorderBottom(BorderStyle.THIN);
@@ -388,6 +441,12 @@ public class ReportExportService {
         return style;
     }
 
+    /**
+     * Стиль подписей блока статистики.
+     *
+     * @param workbook книга
+     * @return стиль
+     */
     private CellStyle createStatsStyle(Workbook workbook) {
         CellStyle style = workbook.createCellStyle();
         Font font = workbook.createFont();
@@ -396,20 +455,41 @@ public class ReportExportService {
         return style;
     }
 
+    /**
+     * Создаёт ячейку статистики в заданной колонке строки.
+     *
+     * @param row    строка Excel
+     * @param column индекс колонки
+     * @param value  текст
+     * @param style  стиль
+     */
     private void createStatsCell(Row row, int column, String value, CellStyle style) {
         org.apache.poi.ss.usermodel.Cell cell = row.createCell(column);
         cell.setCellValue(value != null ? value : "");
         cell.setCellStyle(style);
     }
 
+    /**
+     * Ячейка данных в таблице приёмов.
+     *
+     * @param row    строка
+     * @param column колонка
+     * @param value  значение
+     * @param style  стиль
+     */
     private void createDataCell(Row row, int column, String value, CellStyle style) {
         org.apache.poi.ss.usermodel.Cell cell = row.createCell(column);
         cell.setCellValue(value != null ? value : "");
         cell.setCellStyle(style);
     }
 
-    // === Вспомогательные методы для PDF ===
-
+    /**
+     * Добавляет в PDF-таблицу статистики шесть ячеек из переданных строк.
+     *
+     * @param table  таблица
+     * @param font   шрифт
+     * @param values до шести подписей/значений
+     */
     private void addStatsRow(Table table, PdfFont font, String... values) {
         for (String value : values) {
             Cell cell = new Cell()
@@ -419,6 +499,13 @@ public class ReportExportService {
         }
     }
 
+    /**
+     * Ячейка данных в PDF-таблице отчёта.
+     *
+     * @param table таблица
+     * @param value текст
+     * @param font  шрифт
+     */
     private void addDataCell(Table table, String value, PdfFont font) {
         Cell cell = new Cell()
                 .add(new Paragraph(value != null ? value : "").setFont(font).setFontSize(7))
@@ -426,8 +513,12 @@ public class ReportExportService {
         table.addCell(cell);
     }
 
-    // === Общие вспомогательные методы ===
-
+    /**
+     * Интервал времени приёма для колонки «Время».
+     *
+     * @param appointment строка отчёта
+     * @return {@code HH:mm-HH:mm} или пустая строка
+     */
     private String formatTimeRange(ReportAppointmentDto appointment) {
         if (appointment.getStartTime() == null) return "";
         String start = appointment.getStartTime().format(TIME_FORMATTER);
@@ -435,6 +526,12 @@ public class ReportExportService {
         return start + "-" + end;
     }
 
+    /**
+     * Локализация кода статуса приёма для печати.
+     *
+     * @param status код
+     * @return русская подпись или исходная строка
+     */
     private String translateStatus(String status) {
         if (status == null) return "";
         return switch (status) {

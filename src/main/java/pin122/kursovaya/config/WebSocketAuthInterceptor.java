@@ -15,17 +15,34 @@ import pin122.kursovaya.utils.JwtTokenProvider;
 import java.security.Principal;
 import java.util.List;
 
+/**
+ * Перехватчик STOMP: при команде {@link StompCommand#CONNECT} извлекает JWT из заголовка {@code Authorization} или query,
+ * валидирует и устанавливает {@link Principal} в accessor.
+ *
+ * @see JwtTokenProvider
+ */
 @Component
 public class WebSocketAuthInterceptor implements ChannelInterceptor {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final UserDetailsService userDetailsService;
 
+    /**
+     * @param jwtTokenProvider   проверка JWT
+     * @param userDetailsService загрузка пользователя по имени из токена
+     */
     public WebSocketAuthInterceptor(JwtTokenProvider jwtTokenProvider, UserDetailsService userDetailsService) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.userDetailsService = userDetailsService;
     }
 
+    /**
+     * На этапе CONNECT проверяет токен и выставляет аутентификацию; при ошибке или отсутствии токена возвращает {@code null}.
+     *
+     * @param message исходящее STOMP-сообщение
+     * @param channel канал назначения
+     * @return исходное сообщение или {@code null}, если подключение должно быть отклонено
+     */
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);

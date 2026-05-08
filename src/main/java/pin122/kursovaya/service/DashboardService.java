@@ -1,5 +1,6 @@
 package pin122.kursovaya.service;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pin122.kursovaya.dto.DashboardAppointmentDto;
@@ -14,22 +15,34 @@ import pin122.kursovaya.model.Specialization;
 import pin122.kursovaya.repository.AppointmentRepository;
 import pin122.kursovaya.repository.PatientRepository;
 import pin122.kursovaya.repository.SpecializationRepository;
+import pin122.kursovaya.utils.DoctorPhotoUrls;
 
 import java.time.OffsetDateTime;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+/**
+ * Данные главной страницы: топ специализаций, топ врачей по рейтингу, предстоящие приёмы пациента.
+ */
 @Service
 public class DashboardService {
+
+    @Value("${app.directus.public-url:http://localhost:8055}")
+    private String directusPublicUrl;
 
     private final SpecializationRepository specializationRepository;
     private final DoctorService doctorService;
     private final AppointmentRepository appointmentRepository;
     private final PatientRepository patientRepository;
 
+    /**
+     * @param specializationRepository статистика по врачам на специализацию
+     * @param doctorService              выборка и сортировка врачей (рейтинг)
+     * @param appointmentRepository      запланированные приёмы пациента
+     * @param patientRepository          связь userId → patientId
+     */
     public DashboardService(SpecializationRepository specializationRepository,
                            DoctorService doctorService,
                            AppointmentRepository appointmentRepository,
@@ -41,10 +54,10 @@ public class DashboardService {
     }
 
     /**
-     * Получает данные для дашборда:
-     * 1. Топ 5 специальностей по количеству врачей
-     * 2. Топ 10 врачей по рейтингу
-     * 3. Запланированные записи для текущего пользователя
+     * Собирает блоки дашборда: топ специализаций, топ-10 врачей по рейтингу, приёмы со статусом {@code scheduled}.
+     *
+     * @param userId идентификатор пользователя (для списка приёмов); может быть {@code null}
+     * @return агрегированный {@link pin122.kursovaya.dto.DashboardDto}
      */
     @Transactional(readOnly = true)
     public DashboardDto getDashboardData(Long userId) {
@@ -61,7 +74,10 @@ public class DashboardService {
     }
 
     /**
-     * Получает топ N специальностей по количеству врачей
+     * Возвращает первые {@code limit} специализаций по числу привязанных врачей (как в запросе репозитория).
+     *
+     * @param limit максимум записей
+     * @return список {@link pin122.kursovaya.dto.SpecializationStatsDto}
      */
     private List<SpecializationStatsDto> getTopSpecializations(int limit) {
         List<Object[]> results = specializationRepository.findTopSpecializationsByDoctorCount();
@@ -83,7 +99,10 @@ public class DashboardService {
     }
 
     /**
-     * Получает все записи со статусом 'scheduled' для пользователя
+     * Находит пациента по {@code userId} и возвращает его приёмы со статусом {@code scheduled}.
+     *
+     * @param userId идентификатор пользователя
+     * @return список {@link pin122.kursovaya.dto.DashboardAppointmentDto}; пустой, если пользователь не пациент
      */
     private List<DashboardAppointmentDto> getUpcomingAppointments(Long userId) {
         if (userId == null) {
@@ -106,6 +125,12 @@ public class DashboardService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Преобразует {@link Appointment} в DTO карточки приёма для дашборда (врач, кабинет, диагноз).
+     *
+     * @param appointment сущность приёма
+     * @return {@link pin122.kursovaya.dto.DashboardAppointmentDto}
+     */
     private DashboardAppointmentDto mapToDashboardDto(Appointment appointment) {
         Doctor doctor = appointment.getDoctor();
         
@@ -122,10 +147,7 @@ public class DashboardService {
                 lastName = doctor.getUser().getLastName();
                 middleName = doctor.getUser().getMiddleName();
             }
-            // Получаем фото доктора (конвертируем в Base64)
-            if (doctor.getPhoto() != null && doctor.getPhoto().length > 0) {
-                doctorPhoto = Base64.getEncoder().encodeToString(doctor.getPhoto());
-            }
+            doctorPhoto = DoctorPhotoUrls.toPublicImageUrl(doctor.getPhoto(), directusPublicUrl);
             // Получаем специализации доктора
             if (doctor.getSpecializations() != null) {
                 doctorSpecializations = doctor.getSpecializations().stream()
@@ -154,7 +176,7 @@ public class DashboardService {
                 appointment.getStatus(),
                 appointment.getSource(),
                 appointment.getCreatedAt(),
-                appointment.getDiagnosis()
+                appointment.getDiagnosis() != null ? appointment.getDiagnosis().getCode() : null
         );
     }
 }
@@ -164,4 +186,7 @@ public class DashboardService {
 
 
 
+
+
+ 
 

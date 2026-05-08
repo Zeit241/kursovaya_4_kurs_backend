@@ -4,6 +4,9 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
+/**
+ * Тело REST-запроса на регистрацию пользователя без профиля пациента (контакты, пароль, ФИО одной строкой).
+ */
 @Data
 public class CreateUserDto {
     @Email(message = "Некорректный формат email")

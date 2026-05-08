@@ -4,6 +4,9 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * DTO счётчиков активности пользователя для REST (приёмы, отзывы, записи в очереди).
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

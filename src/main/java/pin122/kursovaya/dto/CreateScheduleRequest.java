@@ -5,6 +5,9 @@ import lombok.Data;
 import java.time.LocalDate;
 import java.time.LocalTime;
 
+/**
+ * Тело REST-запроса на создание расписания врача: врач, кабинет (существующий или новый), дата, интервал и длительность слота.
+ */
 @Data
 public class CreateScheduleRequest {
     private DoctorIdDto doctor;
@@ -21,11 +24,17 @@ public class CreateScheduleRequest {
     
     private Integer slotDurationMinutes;
 
+    /**
+     * Вложенный объект с идентификатором врача в запросе создания расписания.
+     */
     @Data
     public static class DoctorIdDto {
         private Long id;
     }
 
+    /**
+     * Вложенный объект кабинета: либо {@code id} существующего кабинета, либо {@code code}/{@code name} для создания нового.
+     */
     @Data
     public static class RoomIdDto {
         private Long id;

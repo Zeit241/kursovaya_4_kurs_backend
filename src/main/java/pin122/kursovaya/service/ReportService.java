@@ -18,7 +18,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * Сервис для формирования сводных отчётов
+ * Формирование суточных и периодных отчётов по приёмам с агрегированными счётчиками по статусам.
  */
 @Service
 public class ReportService {
@@ -26,13 +26,20 @@ public class ReportService {
     private final AppointmentRepository appointmentRepository;
     private final DoctorRepository doctorRepository;
 
+    /**
+     * @param appointmentRepository выборка приёмов по датам и врачам
+     * @param doctorRepository      отображаемое имя врача для шапки отчёта
+     */
     public ReportService(AppointmentRepository appointmentRepository, DoctorRepository doctorRepository) {
         this.appointmentRepository = appointmentRepository;
         this.doctorRepository = doctorRepository;
     }
 
     /**
-     * Получить перечень всех записанных пациентов на определённую дату
+     * Все приёмы за календарный день (UTC) и сводные счётчики по статусам.
+     *
+     * @param date дата отчёта
+     * @return {@link pin122.kursovaya.dto.DailyReportDto} со списком {@link pin122.kursovaya.dto.ReportAppointmentDto}
      */
     public DailyReportDto getAllAppointmentsByDate(LocalDate date) {
         OffsetDateTime startOfDay = date.atStartOfDay().atOffset(ZoneOffset.UTC);
@@ -81,7 +88,11 @@ public class ReportService {
     }
 
     /**
-     * Получить перечень записанных пациентов на определённую дату к определённому врачу
+     * Приёмы одного врача за день с именем врача в DTO.
+     *
+     * @param doctorId идентификатор врача
+     * @param date     дата
+     * @return {@link pin122.kursovaya.dto.DailyReportDto}
      */
     public DailyReportDto getAppointmentsByDoctorAndDate(Long doctorId, LocalDate date) {
         OffsetDateTime startOfDay = date.atStartOfDay().atOffset(ZoneOffset.UTC);
@@ -139,7 +150,11 @@ public class ReportService {
     }
 
     /**
-     * Получить перечень записей за период
+     * Приёмы за полуинтервал {@code [startDate, endDate]} по UTC-границам суток.
+     *
+     * @param startDate первый день включительно
+     * @param endDate   последний день включительно
+     * @return {@link pin122.kursovaya.dto.DailyReportDto} (поле даты — {@code startDate})
      */
     public DailyReportDto getAppointmentsByDateRange(LocalDate startDate, LocalDate endDate) {
         OffsetDateTime start = startDate.atStartOfDay().atOffset(ZoneOffset.UTC);
@@ -188,7 +203,12 @@ public class ReportService {
     }
 
     /**
-     * Получить перечень записей к врачу за период
+     * Приёмы выбранного врача за период с заполнением {@code doctorDisplayName}.
+     *
+     * @param doctorId  врач
+     * @param startDate начало периода (включительно)
+     * @param endDate   конец периода (включительно)
+     * @return {@link pin122.kursovaya.dto.DailyReportDto}
      */
     public DailyReportDto getAppointmentsByDoctorAndDateRange(Long doctorId, LocalDate startDate, LocalDate endDate) {
         OffsetDateTime start = startDate.atStartOfDay().atOffset(ZoneOffset.UTC);
@@ -246,7 +266,10 @@ public class ReportService {
     }
 
     /**
-     * Преобразование Appointment в ReportAppointmentDto
+     * Разворачивает приём, пациента, врача и кабинет в строки отчёта.
+     *
+     * @param appointment сущность
+     * @return {@link pin122.kursovaya.dto.ReportAppointmentDto}
      */
     private ReportAppointmentDto mapToReportDto(Appointment appointment) {
         ReportAppointmentDto dto = new ReportAppointmentDto();
@@ -255,8 +278,11 @@ public class ReportService {
         dto.setStartTime(appointment.getStartTime());
         dto.setEndTime(appointment.getEndTime());
         dto.setStatus(appointment.getStatus());
-        dto.setDiagnosis(appointment.getDiagnosis());
+        dto.setDiagnosis(appointment.getDiagnosis() != null ? appointment.getDiagnosis().getCode() : null);
         dto.setCancelReason(appointment.getCancelReason());
+        dto.setComplaints(appointment.getComplaints());
+        dto.setAnamnesis(appointment.getAnamnesis());
+        dto.setRecommendations(appointment.getRecommendations());
         dto.setCreatedAt(appointment.getCreatedAt());
 
         // Информация о пациенте
@@ -301,7 +327,10 @@ public class ReportService {
     }
 
     /**
-     * Формирование полного имени из User
+     * Склеивает ФИО из полей {@link User}.
+     *
+     * @param user пользователь
+     * @return строка ФИО с пробелами
      */
     private String buildFullName(User user) {
         StringBuilder sb = new StringBuilder();
@@ -323,6 +352,9 @@ public class ReportService {
         return sb.toString();
     }
 }
+
+
+
 
 
 

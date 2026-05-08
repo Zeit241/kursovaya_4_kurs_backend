@@ -17,7 +17,8 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Сервис для отправки email уведомлений о записях на приём
+ * Формирование контекстов писем и отправка уведомлений о приёмах через {@link EmailService};
+ * фиксация результата в {@link pin122.kursovaya.model.Notification}.
  */
 @Service
 public class EmailNotificationService {
@@ -27,19 +28,25 @@ public class EmailNotificationService {
     private final EmailService emailService;
     private final NotificationRepository notificationRepository;
 
-    private static final DateTimeFormatter DATE_FORMATTER = 
+    private static final DateTimeFormatter DATE_FORMATTER =
             DateTimeFormatter.ofPattern("d MMMM yyyy", new Locale("ru"));
-    private static final DateTimeFormatter TIME_FORMATTER = 
+    private static final DateTimeFormatter TIME_FORMATTER =
             DateTimeFormatter.ofPattern("HH:mm");
 
-    public EmailNotificationService(EmailService emailService, 
+    /**
+     * @param emailService            отправка писем
+     * @param notificationRepository  сохранение истории уведомлений
+     */
+    public EmailNotificationService(EmailService emailService,
                                    NotificationRepository notificationRepository) {
         this.emailService = emailService;
         this.notificationRepository = notificationRepository;
     }
 
     /**
-     * Уведомление о новой записи на приём
+     * Отправляет письмо о успешной записи на приём (шаблон {@code appointment-booked}).
+     *
+     * @param appointment приём с загруженным пациентом и пользователем; при отсутствии email метод завершается без исключения
      */
     public void sendAppointmentBookedNotification(Appointment appointment) {
         Patient patient = appointment.getPatient();
@@ -82,7 +89,11 @@ public class EmailNotificationService {
     }
 
     /**
-     * Уведомление об изменении статуса приёма
+     * Уведомляет пациента об изменении статуса приёма (шаблон {@code appointment-status-changed}).
+     *
+     * @param appointment приём
+     * @param oldStatus   предыдущий статус
+     * @param newStatus   новый статус
      */
     public void sendAppointmentStatusChangedNotification(Appointment appointment, String oldStatus, String newStatus) {
         Patient patient = appointment.getPatient();
@@ -127,7 +138,10 @@ public class EmailNotificationService {
     }
 
     /**
-     * Уведомление об отмене приёма
+     * Уведомляет об отмене приёма (шаблон {@code appointment-cancelled}).
+     *
+     * @param appointment  приём
+     * @param cancelReason текст причины отмены (может быть {@code null})
      */
     public void sendAppointmentCancelledNotification(Appointment appointment, String cancelReason) {
         Patient patient = appointment.getPatient();
@@ -170,7 +184,9 @@ public class EmailNotificationService {
     }
 
     /**
-     * Напоминание о предстоящем приёме (для использования в scheduled task)
+     * Напоминание о предстоящем приёме (шаблон {@code appointment-reminder}); вызывается из планировщика.
+     *
+     * @param appointment приём с пациентом и email
      */
     public void sendAppointmentReminderNotification(Appointment appointment) {
         Patient patient = appointment.getPatient();
@@ -209,7 +225,9 @@ public class EmailNotificationService {
     }
 
     /**
-     * Уведомление о завершении приёма с просьбой оставить отзыв
+     * Благодарность после приёма и приглашение оставить отзыв (шаблон {@code appointment-completed}).
+     *
+     * @param appointment завершённый приём
      */
     public void sendAppointmentCompletedNotification(Appointment appointment) {
         Patient patient = appointment.getPatient();
@@ -245,8 +263,12 @@ public class EmailNotificationService {
         }
     }
 
-    // === Вспомогательные методы ===
-
+    /**
+     * Собирает ФИО пациента для шаблона письма.
+     *
+     * @param user пользователь-пациент
+     * @return непустая строка или «Пациент»
+     */
     private String getPatientFullName(User user) {
         StringBuilder name = new StringBuilder();
         if (user.getLastName() != null) {
@@ -263,6 +285,12 @@ public class EmailNotificationService {
         return name.length() > 0 ? name.toString() : "Пациент";
     }
 
+    /**
+     * Возвращает отображаемое имя врача из приёма.
+     *
+     * @param appointment приём
+     * @return имя врача или заглушка
+     */
     private String getDoctorName(Appointment appointment) {
         if (appointment.getDoctor() != null) {
             return appointment.getDoctor().getDisplayName();
@@ -270,6 +298,12 @@ public class EmailNotificationService {
         return "Врач не указан";
     }
 
+    /**
+     * Берёт название первой специализации врача из приёма.
+     *
+     * @param appointment приём
+     * @return название или пустая строка
+     */
     private String getDoctorSpecialization(Appointment appointment) {
         if (appointment.getDoctor() != null && 
             appointment.getDoctor().getSpecializations() != null &&
@@ -280,6 +314,12 @@ public class EmailNotificationService {
         return "";
     }
 
+    /**
+     * Текстовое описание кабинета для письма.
+     *
+     * @param appointment приём
+     * @return строка с номером кабинета или запасной текст
+     */
     private String getRoomNumber(Appointment appointment) {
         if (appointment.getRoom() != null) {
             return "Кабинет " + appointment.getRoom().getId();
@@ -287,16 +327,34 @@ public class EmailNotificationService {
         return "Будет сообщён дополнительно";
     }
 
+    /**
+     * Форматирует дату приёма для письма (русская локаль).
+     *
+     * @param dateTime момент начала приёма
+     * @return строка даты или пустая строка
+     */
     private String formatDate(OffsetDateTime dateTime) {
         if (dateTime == null) return "";
         return dateTime.format(DATE_FORMATTER);
     }
 
+    /**
+     * Форматирует время начала приёма.
+     *
+     * @param dateTime момент начала
+     * @return строка времени или пустая строка
+     */
     private String formatTime(OffsetDateTime dateTime) {
         if (dateTime == null) return "";
         return dateTime.format(TIME_FORMATTER);
     }
 
+    /**
+     * Переводит код статуса приёма на русский для писем.
+     *
+     * @param status код статуса
+     * @return локализованная строка
+     */
     private String translateStatus(String status) {
         if (status == null) return "Неизвестно";
         return switch (status.toLowerCase()) {
@@ -312,6 +370,12 @@ public class EmailNotificationService {
         };
     }
 
+    /**
+     * CSS-класс для оформления статуса в HTML-шаблоне.
+     *
+     * @param status код статуса
+     * @return имя класса
+     */
     private String getStatusClass(String status) {
         if (status == null) return "status-default";
         return switch (status.toLowerCase()) {
@@ -323,6 +387,14 @@ public class EmailNotificationService {
         };
     }
 
+    /**
+     * Сохраняет запись о попытке уведомления в БД.
+     *
+     * @param user        получатель
+     * @param appointment связанный приём
+     * @param type        тип уведомления (константа домена)
+     * @param status      {@code sent} или {@code failed}
+     */
     private void saveNotification(User user, Appointment appointment, String type, String status) {
         try {
             Map<String, Object> payload = new HashMap<>();

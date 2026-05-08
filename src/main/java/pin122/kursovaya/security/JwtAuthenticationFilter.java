@@ -16,17 +16,36 @@ import pin122.kursovaya.utils.JwtTokenProvider;
 
 import java.io.IOException;
 
+/**
+ * Фильтр, выполняющийся один раз за запрос: извлекает JWT из заголовка {@code Authorization}, валидирует и
+ * устанавливает {@link org.springframework.security.core.context.SecurityContext}.
+ *
+ * @see JwtTokenProvider
+ */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final UserDetailsService userDetailsService;
 
+    /**
+     * @param jwtTokenProvider     проверка и разбор JWT
+     * @param userDetailsService загрузка пользователя по имени из токена
+     */
     public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider, UserDetailsService userDetailsService) {
         this.jwtTokenProvider = jwtTokenProvider;
         this.userDetailsService = userDetailsService;
     }
 
+    /**
+     * Пропускает OPTIONS и публичные пути; для остальных извлекает Bearer-токен, при успехе устанавливает аутентификацию.
+     *
+     * @param request     HTTP-запрос
+     * @param response    HTTP-ответ
+     * @param filterChain цепочка фильтров
+     * @throws ServletException при ошибке сервлета
+     * @throws IOException      при ошибке ввода-вывода
+     */
     @Override
     protected void doFilterInternal(
             @NonNull HttpServletRequest request,

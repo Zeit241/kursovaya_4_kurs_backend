@@ -22,8 +22,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 /**
- * Контроллер для получения сводных отчётов
- * Доступен только для пользователей с ролью admin
+ * REST-контроллер сводных отчётов по записям на приём и выгрузки в Excel/PDF.
+ * <p>
+ * Базовый путь: {@code /api/reports}. Доступ только у пользователей с ролью {@code admin}.
+ *
+ * @see ReportService
+ * @see ReportExportService
  */
 @RestController
 @RequestMapping("/api/reports")
@@ -36,6 +40,11 @@ public class ReportController {
     private final ReportExportService reportExportService;
     private final UserRepository userRepository;
 
+    /**
+     * @param reportService         агрегация данных отчётов
+     * @param reportExportService   генерация файлов Excel и PDF
+     * @param userRepository        проверка роли администратора по email из {@link Authentication}
+     */
     public ReportController(ReportService reportService, 
                            ReportExportService reportExportService,
                            UserRepository userRepository) {
@@ -45,7 +54,10 @@ public class ReportController {
     }
 
     /**
-     * Проверка прав доступа - только admin
+     * Проверяет, что в {@link Authentication} указан пользователь с ролью администратора.
+     *
+     * @param authentication контекст Spring Security или {@code null}
+     * @return {@code true}, если пользователь найден в БД и его роль — {@code admin}
      */
     private boolean isAdmin(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) {
@@ -58,14 +70,16 @@ public class ReportController {
             return false;
         }
         
-        return user.getRoles().stream()
-                .anyMatch(role -> "admin".equalsIgnoreCase(role.getCode()));
+        return user.getRole() != null && "admin".equalsIgnoreCase(user.getRole().getCode());
     }
 
     /**
-     * Получить перечень всех записанных пациентов на определённую дату
-     * 
-     * GET /api/reports/daily?date=2024-01-15
+     * Возвращает перечень всех записей на указанную дату.
+     *
+     * @param date             дата отчёта в формате ISO
+     * @param authentication   контекст безопасности
+     * @return HTTP 200 и {@link DailyReportDto}; HTTP 403 если не админ
+     * @apiNote {@code GET /api/reports/daily?date=}
      */
     @GetMapping("/daily")
     public ResponseEntity<?> getDailyReport(
@@ -81,9 +95,12 @@ public class ReportController {
     }
 
     /**
-     * Получить перечень записанных пациентов на определённую дату к определённому врачу
-     * 
-     * GET /api/reports/daily/doctor/{doctorId}?date=2024-01-15
+     * Возвращает записи на дату для одного врача.
+     *
+     * @param doctorId         идентификатор врача
+     * @param date             дата отчёта
+     * @param authentication   контекст безопасности
+     * @return HTTP 200 и {@link DailyReportDto}; HTTP 403 если не админ
      */
     @GetMapping("/daily/doctor/{doctorId}")
     public ResponseEntity<?> getDailyReportByDoctor(
@@ -100,9 +117,12 @@ public class ReportController {
     }
 
     /**
-     * Получить перечень записей за период
-     * 
-     * GET /api/reports/range?startDate=2024-01-01&endDate=2024-01-31
+     * Возвращает записи за диапазон дат включительно.
+     *
+     * @param startDate        начало периода
+     * @param endDate          конец периода
+     * @param authentication   контекст безопасности
+     * @return HTTP 200 и отчёт; HTTP 403 или HTTP 400 при {@code startDate} после {@code endDate}
      */
     @GetMapping("/range")
     public ResponseEntity<?> getReportByDateRange(
@@ -123,9 +143,13 @@ public class ReportController {
     }
 
     /**
-     * Получить перечень записей к врачу за период
-     * 
-     * GET /api/reports/range/doctor/{doctorId}?startDate=2024-01-01&endDate=2024-01-31
+     * Возвращает записи к врачу за диапазон дат.
+     *
+     * @param doctorId         идентификатор врача
+     * @param startDate        начало периода
+     * @param endDate          конец периода
+     * @param authentication   контекст безопасности
+     * @return HTTP 200 и отчёт; HTTP 403 или HTTP 400 при неверном диапазоне
      */
     @GetMapping("/range/doctor/{doctorId}")
     public ResponseEntity<?> getReportByDoctorAndDateRange(
@@ -149,9 +173,11 @@ public class ReportController {
     // ==================== ЭКСПОРТ В ФАЙЛЫ ====================
 
     /**
-     * Скачать отчёт за дату в формате Excel
-     * 
-     * GET /api/reports/daily/excel?date=2024-01-15
+     * Формирует и отдаёт Excel-файл отчёта за одну дату.
+     *
+     * @param date             дата отчёта
+     * @param authentication   контекст безопасности
+     * @return HTTP 200 с телом {@code application/vnd.openxmlformats-officedocument.spreadsheetml.sheet}; HTTP 403/500 при ошибках
      */
     @GetMapping("/daily/excel")
     public ResponseEntity<?> downloadDailyReportExcel(
@@ -181,9 +207,13 @@ public class ReportController {
     }
 
     /**
-     * Скачать отчёт за дату в формате PDF
-     * 
-     * GET /api/reports/daily/pdf?date=2024-01-15
+     * Формирует и отдаёт PDF-файл дневного отчёта по всем записям на указанную дату.
+     *
+     * @param date             дата отчёта в формате ISO
+     * @param authentication   контекст безопасности
+     * @return HTTP 200 с телом {@code application/pdf} и заголовком вложения; HTTP 403 если не админ;
+     *         HTTP 500 при ошибке генерации PDF
+     * @apiNote {@code GET /api/reports/daily/pdf?date=}
      */
     @GetMapping("/daily/pdf")
     public ResponseEntity<?> downloadDailyReportPdf(
@@ -213,9 +243,14 @@ public class ReportController {
     }
 
     /**
-     * Скачать отчёт по врачу за дату в формате Excel
-     * 
-     * GET /api/reports/daily/doctor/{doctorId}/excel?date=2024-01-15
+     * Формирует и отдаёт Excel-файл отчёта по записям одного врача на указанную дату.
+     *
+     * @param doctorId         идентификатор врача
+     * @param date             дата отчёта в формате ISO
+     * @param authentication   контекст безопасности
+     * @return HTTP 200 с телом {@code application/vnd.openxmlformats-officedocument.spreadsheetml.sheet};
+     *         HTTP 403 если не админ; HTTP 500 при ошибке генерации Excel
+     * @apiNote {@code GET /api/reports/daily/doctor/{doctorId}/excel?date=}
      */
     @GetMapping("/daily/doctor/{doctorId}/excel")
     public ResponseEntity<?> downloadDailyDoctorReportExcel(
@@ -246,9 +281,14 @@ public class ReportController {
     }
 
     /**
-     * Скачать отчёт по врачу за дату в формате PDF
-     * 
-     * GET /api/reports/daily/doctor/{doctorId}/pdf?date=2024-01-15
+     * Формирует и отдаёт PDF-файл отчёта по записям одного врача на указанную дату.
+     *
+     * @param doctorId         идентификатор врача
+     * @param date             дата отчёта в формате ISO
+     * @param authentication   контекст безопасности
+     * @return HTTP 200 с телом {@code application/pdf} и заголовком вложения; HTTP 403 если не админ;
+     *         HTTP 500 при ошибке генерации PDF
+     * @apiNote {@code GET /api/reports/daily/doctor/{doctorId}/pdf?date=}
      */
     @GetMapping("/daily/doctor/{doctorId}/pdf")
     public ResponseEntity<?> downloadDailyDoctorReportPdf(
@@ -279,9 +319,14 @@ public class ReportController {
     }
 
     /**
-     * Скачать отчёт за период в формате Excel
-     * 
-     * GET /api/reports/range/excel?startDate=2024-01-01&endDate=2024-01-31
+     * Формирует и отдаёт Excel-файл отчёта по всем записям за период дат включительно.
+     *
+     * @param startDate        начало периода
+     * @param endDate          конец периода
+     * @param authentication   контекст безопасности
+     * @return HTTP 200 с телом Excel; HTTP 403 если не админ; HTTP 400 если {@code startDate} позже {@code endDate};
+     *         HTTP 500 при ошибке генерации файла
+     * @apiNote {@code GET /api/reports/range/excel?startDate=&endDate=}
      */
     @GetMapping("/range/excel")
     public ResponseEntity<?> downloadRangeReportExcel(
@@ -316,9 +361,14 @@ public class ReportController {
     }
 
     /**
-     * Скачать отчёт за период в формате PDF
-     * 
-     * GET /api/reports/range/pdf?startDate=2024-01-01&endDate=2024-01-31
+     * Формирует и отдаёт PDF-файл отчёта по всем записям за период дат включительно.
+     *
+     * @param startDate        начало периода
+     * @param endDate          конец периода
+     * @param authentication   контекст безопасности
+     * @return HTTP 200 с телом {@code application/pdf}; HTTP 403 если не админ; HTTP 400 при неверном диапазоне;
+     *         HTTP 500 при ошибке генерации PDF
+     * @apiNote {@code GET /api/reports/range/pdf?startDate=&endDate=}
      */
     @GetMapping("/range/pdf")
     public ResponseEntity<?> downloadRangeReportPdf(
@@ -353,9 +403,14 @@ public class ReportController {
     }
 
     /**
-     * Скачать отчёт по врачу за период в формате Excel
-     * 
-     * GET /api/reports/range/doctor/{doctorId}/excel?startDate=2024-01-01&endDate=2024-01-31
+     * Формирует и отдаёт Excel-файл отчёта по записям одного врача за период дат включительно.
+     *
+     * @param doctorId         идентификатор врача
+     * @param startDate        начало периода
+     * @param endDate          конец периода
+     * @param authentication   контекст безопасности
+     * @return HTTP 200 с телом Excel; HTTP 403 если не админ; HTTP 400 при неверном диапазоне; HTTP 500 при ошибке генерации
+     * @apiNote {@code GET /api/reports/range/doctor/{doctorId}/excel?startDate=&endDate=}
      */
     @GetMapping("/range/doctor/{doctorId}/excel")
     public ResponseEntity<?> downloadRangeDoctorReportExcel(
@@ -391,9 +446,15 @@ public class ReportController {
     }
 
     /**
-     * Скачать отчёт по врачу за период в формате PDF
-     * 
-     * GET /api/reports/range/doctor/{doctorId}/pdf?startDate=2024-01-01&endDate=2024-01-31
+     * Формирует и отдаёт PDF-файл отчёта по записям одного врача за период дат включительно.
+     *
+     * @param doctorId         идентификатор врача
+     * @param startDate        начало периода
+     * @param endDate          конец периода
+     * @param authentication   контекст безопасности
+     * @return HTTP 200 с телом {@code application/pdf}; HTTP 403 если не админ; HTTP 400 при неверном диапазоне;
+     *         HTTP 500 при ошибке генерации PDF
+     * @apiNote {@code GET /api/reports/range/doctor/{doctorId}/pdf?startDate=&endDate=}
      */
     @GetMapping("/range/doctor/{doctorId}/pdf")
     public ResponseEntity<?> downloadRangeDoctorReportPdf(

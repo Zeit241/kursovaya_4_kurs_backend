@@ -19,9 +19,17 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * WebSocket контроллер для работы с электронной очередью
- * Авторизация через JWT токен при подключении
- * Использует только Redis для хранения очередей
+ * STOMP-контроллер электронной очереди: обрабатывает сообщения, приходящие от клиента по WebSocket
+ * с префиксом приложения (например {@code /app}), и рассылает ответы пользователю в персональную
+ * очередь {@code /user/queue/user} через {@link SimpMessagingTemplate}.
+ * <p>
+ * Состояние очередей хранится в <strong>Redis</strong> ({@link RedisQueueService}): построение очереди на день,
+ * позиции пациентов и списки по врачу не опираются на отдельное хранилище очередей в БД.
+ * <p>
+ * Аутентификация выполняется при установке STOMP-сессии (JWT в заголовке/параметре подключения);
+ * в обработчиках используется {@link Authentication} с email пользователя.
+ *
+ * @see org.springframework.messaging.handler.annotation.MessageMapping
  */
 @Controller
 public class QueueWebSocketController {
@@ -32,6 +40,13 @@ public class QueueWebSocketController {
     private final PatientRepository patientRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
+    /**
+     * @param redisQueueService   построение и чтение очередей в Redis
+     * @param appointmentService  обновление статусов приёмов и побочные эффекты на очередь
+     * @param userRepository      поиск пользователя по email из {@link Authentication}
+     * @param patientRepository   проверка, что пользователь привязан к профилю пациента
+     * @param messagingTemplate   отправка ответов в {@code /user/queue/user}
+     */
     public QueueWebSocketController(RedisQueueService redisQueueService,
                                     AppointmentService appointmentService,
                                     UserRepository userRepository,
@@ -45,8 +60,11 @@ public class QueueWebSocketController {
     }
 
     /**
-     * Обработка подключения - автоматически строит очередь на текущий день
-     * Отправляется при подключении клиента
+     * Инициализирует очередь пациента на текущий день: по email из {@link Authentication} находит пациента
+     * и строит список записей очереди в Redis. Результат отправляется в {@code /user/queue/user} как
+     * {@link QueueInitResponse}.
+     *
+     * @param authentication контекст Spring Security с именем пользователя (email) или {@code null}
      */
     @MessageMapping("/queue/init")
     public void initQueue(Authentication authentication) {
@@ -111,8 +129,11 @@ public class QueueWebSocketController {
     }
 
     /**
-     * Обновление статуса приема через WebSocket
-     * При изменении статуса очередь автоматически пересчитывается
+     * Обновляет статус приёма по данным из тела STOMP-сообщения; пересчёт очереди выполняется в сервисном слое.
+     * Ответ — {@link StatusUpdateResponse} в {@code /user/queue/user}.
+     *
+     * @param request          идентификатор приёма и новый статус
+     * @param authentication   контекст безопасности вызывающего пользователя или {@code null}
      */
     @MessageMapping("/queue/status-update")
     public void handleStatusUpdate(@Payload StatusUpdateRequest request, Authentication authentication) {
@@ -175,7 +196,11 @@ public class QueueWebSocketController {
     }
 
     /**
-     * Получить позицию в очереди к врачу
+     * Возвращает позицию авторизованного пациента в очереди к указанному врачу и признак «следующий».
+     * Ответ — {@link QueuePositionResponse} с {@link QueuePositionDto} в {@code /user/queue/user}.
+     *
+     * @param request          идентификатор врача ({@link QueuePositionRequest#getDoctorId()})
+     * @param authentication   контекст безопасности с email пациента или {@code null}
      */
     @MessageMapping("/queue/position")
     public void getPosition(@Payload QueuePositionRequest request, Authentication authentication) {
@@ -267,7 +292,10 @@ public class QueueWebSocketController {
     }
 
     /**
-     * Получить все очереди пользователя
+     * Возвращает все очереди текущего пациента из Redis (записи по врачам, где он состоит в очереди).
+     * Ответ — {@link QueueListResponse} в {@code /user/queue/user}.
+     *
+     * @param authentication контекст безопасности с email пациента или {@code null}
      */
     @MessageMapping("/queue/my-queues")
     public void getMyQueues(Authentication authentication) {
@@ -321,12 +349,19 @@ public class QueueWebSocketController {
         }
     }
 
-    // DTO классы для WebSocket сообщений
+    /**
+     * Ответ на инициализацию очереди: успех операции, текстовое сообщение и список элементов очереди на сегодня.
+     */
     public static class QueueInitResponse {
         private boolean success;
         private String message;
         private List<QueueEntryDto> data;
 
+        /**
+         * @param success признак успешного выполнения операции
+         * @param message пояснение для клиента (ошибка или статус)
+         * @param data    список {@link QueueEntryDto} или {@code null} при ошибке
+         */
         public QueueInitResponse(boolean success, String message, List<QueueEntryDto> data) {
             this.success = success;
             this.message = message;
@@ -342,11 +377,19 @@ public class QueueWebSocketController {
         public void setData(List<QueueEntryDto> data) { this.data = data; }
     }
 
+    /**
+     * Ответ с позицией в очереди: флаг успеха, сообщение и данные {@link QueuePositionDto}.
+     */
     public static class QueuePositionResponse {
         private boolean success;
         private String message;
         private QueuePositionDto data;
 
+        /**
+         * @param success признак успешного получения позиции
+         * @param message пояснение для клиента
+         * @param data    DTO позиции или {@code null}
+         */
         public QueuePositionResponse(boolean success, String message, QueuePositionDto data) {
             this.success = success;
             this.message = message;
@@ -362,11 +405,19 @@ public class QueueWebSocketController {
         public void setData(QueuePositionDto data) { this.data = data; }
     }
 
+    /**
+     * Ответ со списком очередей пациента по всем врачам (элементы {@link QueueEntryDto}).
+     */
     public static class QueueListResponse {
         private boolean success;
         private String message;
         private List<QueueEntryDto> data;
 
+        /**
+         * @param success признак успешного получения списка
+         * @param message пояснение для клиента
+         * @param data    список очередей или {@code null}
+         */
         public QueueListResponse(boolean success, String message, List<QueueEntryDto> data) {
             this.success = success;
             this.message = message;
@@ -382,6 +433,9 @@ public class QueueWebSocketController {
         public void setData(List<QueueEntryDto> data) { this.data = data; }
     }
 
+    /**
+     * Тело запроса на получение позиции в очереди: идентификатор врача.
+     */
     public static class QueuePositionRequest {
         private Long doctorId;
 
@@ -389,6 +443,9 @@ public class QueueWebSocketController {
         public void setDoctorId(Long doctorId) { this.doctorId = doctorId; }
     }
 
+    /**
+     * Тело запроса на смену статуса приёма по WebSocket.
+     */
     public static class StatusUpdateRequest {
         private Long appointmentId;
         private String newStatus;
@@ -399,11 +456,19 @@ public class QueueWebSocketController {
         public void setNewStatus(String newStatus) { this.newStatus = newStatus; }
     }
 
+    /**
+     * Ответ после обновления статуса приёма: успех, сообщение и обновлённый {@link AppointmentDto}.
+     */
     public static class StatusUpdateResponse {
         private boolean success;
         private String message;
         private AppointmentDto data;
 
+        /**
+         * @param success признак успешного обновления
+         * @param message пояснение для клиента
+         * @param data    обновлённый приём или {@code null}
+         */
         public StatusUpdateResponse(boolean success, String message, AppointmentDto data) {
             this.success = success;
             this.message = message;

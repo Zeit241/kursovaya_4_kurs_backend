@@ -4,6 +4,9 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * DTO позиции пациента в живой очереди к врачу для REST или push-уведомлений.
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

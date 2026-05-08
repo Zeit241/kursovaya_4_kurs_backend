@@ -19,9 +19,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Контроллер для работы с очередями через Redis
- * Получение всех пациентов в очередях, где есть текущий пациент
- * Пропуск других пациентов в очереди
+ * REST-контроллер для отладки и нагрузочного сценария электронной очереди.
+ * <p>
+ * Базовый путь: {@code /api/test/queue}. Создаёт тестовые приёмы в БД, пересобирает очереди в
+ * <strong>Redis</strong> и позволяет просматривать очереди по пациенту и врачу, а также симулировать
+ * пропуск пациентов ({@code no_show}) и массовый пропуск стоящих перед текущим.
+ * <p>
+ * Не предназначен для продакшена без ограничения доступа.
+ *
+ * @see RedisQueueService
  */
 @RestController
 @RequestMapping("/api/test/queue")
@@ -33,6 +39,13 @@ public class QueueTestController {
     private final RedisQueueService redisQueueService;
     private final AppointmentService appointmentService;
 
+    /**
+     * @param patientRepository      доступ к пациентам
+     * @param doctorRepository       доступ к врачам
+     * @param appointmentRepository  сохранение и поиск приёмов
+     * @param redisQueueService      построение и модификация очередей в Redis
+     * @param appointmentService     смена статусов приёмов (в т.ч. {@code no_show})
+     */
     public QueueTestController(PatientRepository patientRepository,
                                DoctorRepository doctorRepository,
                                AppointmentRepository appointmentRepository,
@@ -46,11 +59,14 @@ public class QueueTestController {
     }
 
     /**
-     * Создает несколько записей для пациента и строит очереди
-     * Время приема: 5 минут
-     * 
-     * @param patientId ID пациента
-     * @return Информация о созданных записях и очередях
+     * Создаёт для указанного пациента тестовые приёмы к нескольким врачам (до трёх): у каждого врача
+     * в очереди четыре случайных других пациента и затем целевой пациент; длительность слота 5 минут.
+     * После сохранения пересобирает очереди в Redis для всех затронутых пациентов.
+     *
+     * @param patientId идентификатор пациента, для которого строится сценарий
+     * @return HTTP 200 с картой полей {@code success}, {@code message}, списками приёмов и очередей;
+     *         HTTP 400 если пациент, врачи или число других пациентов не позволяют сценарий
+     * @apiNote {@code POST /api/test/queue/create-for-patient/{patientId}}
      */
     @PostMapping("/create-for-patient/{patientId}")
     public ResponseEntity<Map<String, Object>> createQueuesForPatient(@PathVariable Long patientId) {
@@ -190,14 +206,18 @@ public class QueueTestController {
     }
 
     /**
-     * Создает тестовую очередь для пациента
-     * Создает appointments и строит очередь в Redis
-     * 
-     * @param patientId ID пациента (опционально, если не указан - берется первый)
-     * @param doctorId ID врача (опционально, если не указан - берется первый)
-     * @param patientsBefore Количество пациентов перед текущим (по умолчанию 3)
-     * @param patientsAfter Количество пациентов после текущего (по умолчанию 2)
-     * @return Информация о созданной очереди
+     * Создаёт одну тестовую очередь к выбранному врачу: заданное число других пациентов перед целевым,
+     * сам целевой пациент и заданное число после; слоты по 5 минут. Если {@code patientId} или
+     * {@code doctorId} не переданы, подставляются первые записи из БД. После сохранения пересобирает
+     * очереди в Redis и возвращает полную очередь и позицию текущего пациента.
+     *
+     * @param patientId      идентификатор пациента или {@code null} (тогда первый пациент в системе)
+     * @param doctorId       идентификатор врача или {@code null} (тогда первый врач)
+     * @param patientsBefore сколько других пациентов поставить в очередь перед текущим (по умолчанию 3)
+     * @param patientsAfter  сколько других пациентов после текущего (по умолчанию 2)
+     * @return HTTP 200 с детализацией созданных приёмов, {@code fullQueue} и {@code positionInfo};
+     *         HTTP 400 при отсутствии сущностей или недостаточном числе других пациентов
+     * @apiNote {@code POST /api/test/queue/create-test-queue}
      */
     @PostMapping("/create-test-queue")
     public ResponseEntity<Map<String, Object>> createTestQueue(
@@ -395,10 +415,11 @@ public class QueueTestController {
     }
 
     /**
-     * Получает все очереди для пациента
-     * 
-     * @param patientId ID пациента
-     * @return Список очередей
+     * Возвращает все записи очередей в Redis для указанного пациента (по врачам, где он в очереди).
+     *
+     * @param patientId идентификатор пациента
+     * @return HTTP 200 с полями {@code queues}, {@code queuesCount}; HTTP 400 если пациент не найден
+     * @apiNote {@code GET /api/test/queue/patient/{patientId}}
      */
     @GetMapping("/patient/{patientId}")
     public ResponseEntity<Map<String, Object>> getPatientQueues(@PathVariable Long patientId) {
@@ -424,11 +445,12 @@ public class QueueTestController {
     }
 
     /**
-     * Получает всех пациентов в очередях, где есть текущий пациент
-     * Возвращает полные очереди к каждому врачу, где находится указанный пациент
-     * 
-     * @param patientId ID текущего пациента
-     * @return Полные очереди к врачам, где есть этот пациент
+     * Для каждого врача, у которого указанный пациент состоит в очереди, возвращает полную очередь из Redis,
+     * позицию текущего пациента и списки записей «до» и «после» него.
+     *
+     * @param patientId идентификатор пациента
+     * @return HTTP 200 с массивом {@code fullQueues} и счётчиками; HTTP 400 если пациент не найден
+     * @apiNote {@code GET /api/test/queue/patient/{patientId}/all-queues}
      */
     @GetMapping("/patient/{patientId}/all-queues")
     public ResponseEntity<Map<String, Object>> getAllPatientsInQueues(@PathVariable Long patientId) {
@@ -502,10 +524,11 @@ public class QueueTestController {
     }
 
     /**
-     * Получает очередь к конкретному врачу
-     * 
-     * @param doctorId ID врача
-     * @return Очередь к врачу
+     * Возвращает полную очередь к врачу из Redis (упорядоченный список {@link QueueEntryDto}).
+     *
+     * @param doctorId идентификатор врача
+     * @return HTTP 200 с полем {@code queue} и {@code queueSize}; HTTP 400 если врач не найден
+     * @apiNote {@code GET /api/test/queue/doctor/{doctorId}}
      */
     @GetMapping("/doctor/{doctorId}")
     public ResponseEntity<Map<String, Object>> getDoctorQueue(@PathVariable Long doctorId) {
@@ -531,11 +554,14 @@ public class QueueTestController {
     }
 
     /**
-     * Пропускает пациента в очереди (удаляет из очереди и помечает приём как "no_show")
-     * 
-     * @param patientId ID пациента
-     * @param doctorId ID врача
-     * @return Информация об обновлённой очереди
+     * Удаляет пациента из очереди к врачу в Redis; при наличии активного приёма помечает его статусом
+     * {@code no_show} через {@link AppointmentService}.
+     *
+     * @param patientId идентификатор пациента
+     * @param doctorId  идентификатор врача
+     * @return HTTP 200 с {@code updatedQueue}, {@code positionBefore} и при необходимости {@code appointmentId};
+     *         HTTP 400 если сущности не найдены, пациент не в очереди или удаление не удалось
+     * @apiNote {@code POST /api/test/queue/skip-patient/{patientId}/doctor/{doctorId}}
      */
     @PostMapping("/skip-patient/{patientId}/doctor/{doctorId}")
     public ResponseEntity<Map<String, Object>> skipPatientInQueue(
@@ -617,10 +643,13 @@ public class QueueTestController {
     }
 
     /**
-     * Пропускает пациента в очереди по ID приёма
-     * 
-     * @param appointmentId ID приёма
-     * @return Информация об обновлённой очереди
+     * Пропуск по идентификатору приёма: определяет пациента и врача, выставляет статус {@code no_show}
+     * (что согласовано с удалением из очереди в сервисе) и возвращает обновлённую очередь врача.
+     *
+     * @param appointmentId идентификатор приёма
+     * @return HTTP 200 с {@code updatedQueue} и метаданными приёма; HTTP 400 если приём не найден,
+     *         нет привязок или пациент не в очереди к врачу
+     * @apiNote {@code POST /api/test/queue/skip-appointment/{appointmentId}}
      */
     @PostMapping("/skip-appointment/{appointmentId}")
     public ResponseEntity<Map<String, Object>> skipAppointment(@PathVariable Long appointmentId) {
@@ -681,12 +710,14 @@ public class QueueTestController {
     }
 
     /**
-     * Пропускает всех пациентов перед текущим в очереди к врачу
-     * Удаляет из очереди всех пациентов, которые находятся перед указанным пациентом
-     * 
-     * @param patientId ID текущего пациента
-     * @param doctorId ID врача
-     * @return Информация об обновлённой очереди
+     * Для пары «пациент — врач» удаляет из Redis-очереди всех, кто стоит перед указанным пациентом;
+     * для каждого пропущенного при наличии активного приёма выставляется {@code no_show}.
+     *
+     * @param patientId идентификатор пациента, относительно которого отсчитываются «те, кто перед»
+     * @param doctorId  идентификатор врача
+     * @return HTTP 200 с {@code skippedPatients}, новой позицией и очередью; при отсутствии кого пропускать —
+     *         успех с {@code skippedCount = 0}; HTTP 400 если пациент не в очереди или сущности не найдены
+     * @apiNote {@code POST /api/test/queue/skip-others/{patientId}/doctor/{doctorId}}
      */
     @PostMapping("/skip-others/{patientId}/doctor/{doctorId}")
     public ResponseEntity<Map<String, Object>> skipOthersInQueue(
@@ -798,10 +829,12 @@ public class QueueTestController {
     }
 
     /**
-     * Пропускает всех пациентов перед текущим во всех очередях, где он находится
-     * 
-     * @param patientId ID текущего пациента
-     * @return Информация об обновлённых очередях
+     * Для каждого врача, в очереди к которому состоит пациент, вызывает логику пропуска всех стоящих перед ним
+     * (аналог {@link #skipOthersInQueue(Long, Long)}), агрегируя результаты по врачам и общее число пропусков.
+     *
+     * @param patientId идентификатор пациента
+     * @return HTTP 200 с {@code results} по каждому врачу и {@code totalSkipped}; HTTP 400 если пациент не найден
+     * @apiNote {@code POST /api/test/queue/skip-others-all/{patientId}}
      */
     @PostMapping("/skip-others-all/{patientId}")
     public ResponseEntity<Map<String, Object>> skipOthersInAllQueues(@PathVariable Long patientId) {

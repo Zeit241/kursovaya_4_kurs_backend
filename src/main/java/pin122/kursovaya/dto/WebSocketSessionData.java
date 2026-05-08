@@ -5,7 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * DTO для хранения данных WebSocket сессии в Redis
+ * Перенос данных WebSocket-сессии при хранении в Redis: пользователь, связанные приёмы, момент подключения.
  */
 @Data
 public class WebSocketSessionData {
@@ -19,6 +19,14 @@ public class WebSocketSessionData {
     public WebSocketSessionData() {
     }
 
+    /**
+     * @param sessionId идентификатор сессии
+     * @param userId идентификатор пользователя
+     * @param patientId идентификатор пациента, если применимо
+     * @param email email пользователя
+     * @param appointmentIds идентификаторы приёмов, по которым подписка активна
+     * @param connectedAt время установления соединения
+     */
     public WebSocketSessionData(String sessionId, Long userId, Long patientId, String email, 
                                  List<Long> appointmentIds, LocalDateTime connectedAt) {
         this.sessionId = sessionId;

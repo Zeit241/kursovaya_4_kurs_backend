@@ -3,6 +3,9 @@ package pin122.kursovaya.model;
 import jakarta.persistence.*;
 import lombok.Data;
 
+/**
+ * JPA-сущность справочника медицинских специализаций.
+ */
 @Entity
 @Data
 @Table(name = "specializations")

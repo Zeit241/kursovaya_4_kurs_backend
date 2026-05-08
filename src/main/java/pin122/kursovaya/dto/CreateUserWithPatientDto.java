@@ -9,6 +9,9 @@ import lombok.Data;
 
 import java.time.LocalDate;
 
+/**
+ * Тело REST-запроса совместной регистрации пользователя и профиля пациента (контакты, пароль, ФИО, демография, полис).
+ */
 @Data
 public class CreateUserWithPatientDto {
     // Данные пользователя

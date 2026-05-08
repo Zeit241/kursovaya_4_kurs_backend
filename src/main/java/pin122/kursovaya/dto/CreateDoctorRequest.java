@@ -7,7 +7,7 @@ import lombok.Data;
 import java.util.List;
 
 /**
- * DTO для создания нового врача с возможностью указания специализаций
+ * Тело REST-запроса на создание врача вместе с учётной записью пользователя и начальным набором специализаций.
  */
 @Data
 public class CreateDoctorRequest {
@@ -16,7 +16,7 @@ public class CreateDoctorRequest {
     @Valid
     private UserDto user;
     
-    @NotBlank(message = "Отображаемое имя не может быть пустым")
+    /** Устарело: не сохраняется в БД; в ответах API имя собирается из ФИО пользователя. */
     private String displayName;
     
     @Size(max = 50, message = "Описание должно содержать до 50 символов")
@@ -26,7 +26,8 @@ public class CreateDoctorRequest {
     @Max(value = 80, message = "Опыт не может быть больше 80")
     private Integer experienceYears;
     
-    private String photo; // Base64-кодированное изображение
+    /** UUID файла в Directus или абсолютный URL; не base64. */
+    private String photo;
     
     /**
      * Список ID специализаций для назначения врачу

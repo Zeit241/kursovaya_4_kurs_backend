@@ -9,9 +9,21 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 
+/**
+ * Точка входа для неаутентифицированных запросов: ответ JSON со статусом 401.
+ */
 @Component
 public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
+    /**
+     * Записывает в ответ JSON с полями {@code error} и {@code message} (текст на английском в теле ответа для клиентов).
+     *
+     * @param request       HTTP-запрос
+     * @param response      HTTP-ответ
+     * @param authException причина отказа в аутентификации
+     * @throws IOException      при записи тела ответа
+     * @throws ServletException при ошибке сервлета
+     */
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException authException) throws IOException, ServletException {

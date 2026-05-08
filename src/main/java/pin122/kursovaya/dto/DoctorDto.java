@@ -8,6 +8,9 @@ import pin122.kursovaya.dto.validation.OnUpdate;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+/**
+ * DTO врача для REST: учётная запись ({@link UserDto}), профиль, рейтинг, список специализаций; используется при создании и обновлении с группами валидации.
+ */
 @Data
 public class DoctorDto {
     @NotNull(groups = OnUpdate.class)
@@ -15,14 +18,14 @@ public class DoctorDto {
     private Long id;
     @NotNull(groups = {OnCreate.class, OnUpdate.class})
     private UserDto user;
-    @NotBlank(message = "Отображаемое имя не может быть пустым", groups = {OnCreate.class, OnUpdate.class})
     private String displayName;
     @Size(min = 0, max = 50, message = "Описание должно содержать до 50 символов", groups = {OnCreate.class, OnUpdate.class})
     private String bio;
     @Min(value = 0, message = "Опыт не может быть меньше 0", groups = {OnCreate.class, OnUpdate.class})
     @Max(value = 80, message = "Опыт не может быть больше 80", groups = {OnCreate.class, OnUpdate.class})
     private Integer experienceYears;
-    private String photo; // Base64-кодированное изображение (BYTEA в БД)
+    /** Публичный URL ассета (ответ API); в БД — UUID Directus или URL. */
+    private String photo;
     private Double rating; // Средний рейтинг из отзывов (1.0 - 5.0)
     private Integer reviewCount; // Количество отзывов
     private List<SpecializationDto> specializations; // Список специализаций врача
@@ -32,6 +35,16 @@ public class DoctorDto {
     public DoctorDto() {
     }
 
+    /**
+     * @param id идентификатор врача
+     * @param user данные пользователя
+     * @param displayName отображаемое имя (устаревшее поле в API)
+     * @param bio краткое описание
+     * @param experienceYears стаж в годах
+     * @param photo публичный URL изображения врача
+     * @param createdAt время создания
+     * @param updatedAt время обновления
+     */
     public DoctorDto(Long id, UserDto user, String displayName, String bio, Integer experienceYears, String photo, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
         this.id = id;
         this.user = user;
@@ -43,6 +56,18 @@ public class DoctorDto {
         this.updatedAt = updatedAt;
     }
 
+    /**
+     * @param id идентификатор врача
+     * @param user данные пользователя
+     * @param displayName отображаемое имя (устаревшее поле в API)
+     * @param bio краткое описание
+     * @param experienceYears стаж в годах
+     * @param photo публичный URL изображения врача
+     * @param rating средний рейтинг по отзывам
+     * @param reviewCount число отзывов
+     * @param createdAt время создания
+     * @param updatedAt время обновления
+     */
     public DoctorDto(Long id, UserDto user, String displayName, String bio, Integer experienceYears, String photo, Double rating, Integer reviewCount, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
         this.id = id;
         this.user = user;

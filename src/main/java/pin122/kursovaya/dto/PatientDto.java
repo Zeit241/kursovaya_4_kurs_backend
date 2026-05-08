@@ -10,6 +10,9 @@ import pin122.kursovaya.dto.validation.OnUpdate;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 
+/**
+ * DTO профиля пациента для REST с вложенным {@link UserDto}; валидация зависит от групп создания и обновления.
+ */
 @Data
 public class PatientDto {
     @NotNull(groups = OnUpdate.class)
@@ -29,6 +32,15 @@ public class PatientDto {
     public PatientDto() {
     }
 
+    /**
+     * @param id идентификатор пациента
+     * @param user учётная запись
+     * @param birthDate дата рождения
+     * @param gender пол (коды как в доменной модели)
+     * @param insuranceNumber номер полиса
+     * @param createdAt время создания
+     * @param updatedAt время обновления
+     */
     public PatientDto(Long id, UserDto user, LocalDate birthDate, Short gender, String insuranceNumber, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
         this.id = id;
         this.user = user;

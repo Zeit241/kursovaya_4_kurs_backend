@@ -3,6 +3,9 @@ package pin122.kursovaya.dto;
 import lombok.Data;
 import java.time.OffsetDateTime;
 
+/**
+ * DTO свободного или доступного для выбора слота приёма без вложенных сущностей (для каталога записи).
+ */
 @Data
 public class AvailableAppointmentDto {
     private Long id;
@@ -18,6 +21,18 @@ public class AvailableAppointmentDto {
 
     public AvailableAppointmentDto() {}
 
+    /**
+     * @param id идентификатор слота
+     * @param scheduleId идентификатор расписания
+     * @param doctorId идентификатор врача
+     * @param patientId идентификатор пациента, если слот занят
+     * @param roomId идентификатор кабинета
+     * @param startTime начало
+     * @param endTime конец
+     * @param isBooked признак брони
+     * @param status статус
+     * @param source источник
+     */
     public AvailableAppointmentDto(Long id, Long scheduleId, Long doctorId, Long patientId, Long roomId,
                                    OffsetDateTime startTime, OffsetDateTime endTime, Boolean isBooked,
                                    String status, String source) {

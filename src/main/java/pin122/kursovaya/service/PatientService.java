@@ -21,6 +21,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+/**
+ * Управление пациентами: CRUD, каскадное удаление связанных сущностей, создание вместе с пользователем.
+ */
 @Service
 public class PatientService {
 
@@ -31,7 +34,15 @@ public class PatientService {
     private final ReviewRepository reviewRepository;
     private final QueueEntryRepository queueEntryRepository;
 
-    public PatientService(PatientRepository patientRepository, UserRepository userRepository, 
+    /**
+     * @param patientRepository      репозиторий пациентов
+     * @param userRepository         репозиторий пользователей
+     * @param roleRepository         роли (назначение patient)
+     * @param appointmentRepository  для очистки ссылок на пациента в приёмах
+     * @param reviewRepository       удаление отзывов пациента
+     * @param queueEntryRepository   удаление записей очереди
+     */
+    public PatientService(PatientRepository patientRepository, UserRepository userRepository,
                          RoleRepository roleRepository, AppointmentRepository appointmentRepository,
                          ReviewRepository reviewRepository, QueueEntryRepository queueEntryRepository) {
         this.patientRepository = patientRepository;
@@ -42,30 +53,47 @@ public class PatientService {
         this.queueEntryRepository = queueEntryRepository;
     }
 
+    /**
+     * Возвращает всех пациентов.
+     *
+     * @return список {@link PatientDto}
+     */
     public List<PatientDto> getAllPatients() {
         return patientRepository.findAll().stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Ищет пациента по идентификатору.
+     *
+     * @param id первичный ключ
+     * @return {@link PatientDto}, если найден
+     */
     public Optional<PatientDto> getPatientById(Long id) {
         return patientRepository.findById(id)
                 .map(this::mapToDto);
     }
 
+    /**
+     * Сохраняет сущность пациента и возвращает DTO.
+     *
+     * @param patient сущность для сохранения
+     * @return DTO после сохранения
+     */
     public PatientDto savePatient(Patient patient) {
         Patient saved = patientRepository.save(patient);
         return mapToDto(saved);
     }
-    
+
     /**
-     * Создаёт нового пациента с пользователем
-     * @param request DTO с данными пациента и пользователя
-     * @return созданный пациент в виде DTO
+     * Создаёт пользователя с ролью patient и связанного пациента по данным запроса.
+     *
+     * @param request валидируемый {@link CreatePatientRequest}
+     * @return созданный {@link PatientDto}
      */
     @Transactional
     public PatientDto createPatient(@Valid CreatePatientRequest request) {
-        // Создаём пользователя
         User user = new User();
         user.setEmail(request.getUser().getEmail());
         user.setPhone(FormatUtils.normalizePhone(request.getUser().getPhone()));
@@ -75,14 +103,11 @@ public class PatientService {
         user.setActive(true);
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());
-        
-        // Назначаем роль "patient"
-        roleRepository.findByCode("patient").ifPresent(role -> user.getRoles().add(role));
-        
-        // Сохраняем пользователя
+
+        roleRepository.findByCode("patient").ifPresent(user::setRole);
+
         User savedUser = userRepository.save(user);
-        
-        // Создаём пациента
+
         Patient patient = new Patient();
         patient.setUser(savedUser);
         patient.setBirthDate(request.getBirthDate());
@@ -90,14 +115,20 @@ public class PatientService {
         patient.setInsuranceNumber(FormatUtils.normalizeInsuranceNumber(request.getInsuranceNumber()));
         patient.setCreatedAt(OffsetDateTime.now());
         patient.setUpdatedAt(OffsetDateTime.now());
-        
+
         Patient savedPatient = patientRepository.save(patient);
         return mapToDto(savedPatient);
     }
 
+    /**
+     * Частично обновляет поля пациента и при необходимости связанного {@link User}.
+     *
+     * @param id             идентификатор пациента
+     * @param patientUpdate  сущность с заполненными изменяемыми полями
+     * @return обновлённый {@link PatientDto}, если пациент найден
+     */
     public Optional<PatientDto> updatePatient(Long id, Patient patientUpdate) {
         return patientRepository.findById(id).map(existingPatient -> {
-            // Обновляем поля Patient
             if (patientUpdate.getBirthDate() != null) {
                 existingPatient.setBirthDate(patientUpdate.getBirthDate());
             }
@@ -108,14 +139,12 @@ public class PatientService {
                 existingPatient.setInsuranceNumber(FormatUtils.normalizeInsuranceNumber(patientUpdate.getInsuranceNumber()));
             }
             existingPatient.setUpdatedAt(java.time.OffsetDateTime.now());
-            
-            // Обновляем связанный User, если он присутствует в запросе
+
             if (patientUpdate.getUser() != null) {
                 User existingUser = existingPatient.getUser();
                 if (existingUser != null) {
                     User userUpdate = patientUpdate.getUser();
-                    
-                    // Обновляем поля User
+
                     if (userUpdate.getEmail() != null) {
                         existingUser.setEmail(userUpdate.getEmail());
                     }
@@ -131,58 +160,56 @@ public class PatientService {
                     if (userUpdate.getMiddleName() != null) {
                         existingUser.setMiddleName(userUpdate.getMiddleName());
                     }
-                    // Обновляем active, если передан
                     existingUser.setActive(userUpdate.isActive());
                     existingUser.setUpdatedAt(java.time.OffsetDateTime.now());
-                    
-                    // Сохраняем обновленный User
+
                     userRepository.save(existingUser);
                 }
             }
-            
+
             Patient saved = patientRepository.save(existingPatient);
             return mapToDto(saved);
         });
     }
 
     /**
-     * Удаляет пациента и все связанные с ним записи
-     * @param id ID пациента
+     * Удаляет пациента, связанные очереди, отзывы, очищает привязку в приёмах и удаляет {@link User}.
+     *
+     * @param id идентификатор пациента; если записи нет, метод завершается без ошибки
      */
     @Transactional
     public void deletePatient(Long id) {
-        // Проверяем, существует ли пациент
         Patient patient = patientRepository.findById(id).orElse(null);
         if (patient == null) {
             return;
         }
-        
-        // Удаляем записи в очереди
+
         queueEntryRepository.deleteByPatientId(id);
-        
-        // Удаляем отзывы пациента
+
         reviewRepository.deleteByPatientId(id);
-        
-        // Очищаем ссылку на пациента в записях на приём (не удаляем сами слоты)
+
         appointmentRepository.clearPatientFromAppointments(id);
-        
-        // Получаем пользователя для удаления
+
         User user = patient.getUser();
-        
-        // Удаляем пациента
+
         patientRepository.deleteById(id);
-        
-        // Удаляем связанного пользователя, если он существует
+
         if (user != null) {
             userRepository.deleteById(user.getId());
         }
     }
 
+    /**
+     * Собирает {@link PatientDto} с вложенным {@link UserDto}.
+     *
+     * @param patient сущность из БД
+     * @return DTO для API
+     */
     private PatientDto mapToDto(Patient patient) {
-        UserDto userDto = patient.getUser() != null 
+        UserDto userDto = patient.getUser() != null
                 ? new UserDto(patient.getUser())
                 : null;
-        
+
         return new PatientDto(
                 patient.getId(),
                 userDto,

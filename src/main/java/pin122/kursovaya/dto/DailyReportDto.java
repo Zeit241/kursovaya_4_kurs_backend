@@ -6,7 +6,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * DTO для сводного отчёта за день
+ * DTO сводного отчёта за календарный день: агрегированные счётчики по статусам приёмов и список детальных записей.
  */
 @Data
 public class DailyReportDto {
@@ -28,6 +28,17 @@ public class DailyReportDto {
 
     public DailyReportDto() {}
 
+    /**
+     * @param date дата отчёта
+     * @param totalAppointments всего приёмов за день
+     * @param scheduledCount число запланированных
+     * @param completedCount число завершённых
+     * @param cancelledCount число отменённых
+     * @param noShowCount число неявок
+     * @param doctorId идентификатор врача, если отчёт по одному врачу; иначе {@code null}
+     * @param doctorDisplayName отображаемое имя врача для заголовка отчёта
+     * @param appointments список приёмов с детализацией
+     */
     public DailyReportDto(LocalDate date, int totalAppointments, int scheduledCount, 
                           int completedCount, int cancelledCount, int noShowCount,
                           Long doctorId, String doctorDisplayName, 
@@ -43,6 +54,9 @@ public class DailyReportDto {
         this.appointments = appointments;
     }
 }
+
+
+
 
 
 

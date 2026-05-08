@@ -7,7 +7,7 @@ import lombok.Data;
 import java.time.LocalDate;
 
 /**
- * DTO для создания нового пациента
+ * Тело REST-запроса на создание пациента вместе с учётной записью пользователя и медицинскими атрибутами профиля.
  */
 @Data
 public class CreatePatientRequest {

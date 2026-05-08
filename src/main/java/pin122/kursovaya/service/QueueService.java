@@ -17,6 +17,11 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+/**
+ * Очередь пациентов в реляционной БД ({@link QueueEntry}): позиции, построение по приёмам, сдвиг после удаления.
+ *
+ * <p>Отдельно от очереди в Redis ({@link RedisQueueService}).
+ */
 @Service
 public class QueueService {
 
@@ -25,6 +30,12 @@ public class QueueService {
     private final DoctorRepository doctorRepository;
     private final AppointmentRepository appointmentRepository;
 
+    /**
+     * @param queueEntryRepository   хранение записей очереди
+     * @param patientRepository      загрузка пациента
+     * @param doctorRepository       загрузка врача
+     * @param appointmentRepository  привязка к приёму при добавлении в очередь
+     */
     public QueueService(QueueEntryRepository queueEntryRepository,
                        PatientRepository patientRepository,
                        DoctorRepository doctorRepository,
@@ -35,28 +46,58 @@ public class QueueService {
         this.appointmentRepository = appointmentRepository;
     }
 
+    /**
+     * Очередь к врачу, упорядоченная по возрастанию позиции.
+     *
+     * @param doctorId идентификатор врача
+     * @return список {@link QueueEntryDto}
+     */
     public List<QueueEntryDto> getQueueByDoctor(Long doctorId) {
         return queueEntryRepository.findByDoctorIdOrderByPositionAsc(doctorId).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Ищет элемент очереди по идентификатору.
+     *
+     * @param id первичный ключ
+     * @return {@link QueueEntryDto}, если найден
+     */
     public Optional<QueueEntryDto> getQueueEntryById(Long id) {
         return queueEntryRepository.findById(id)
                 .map(this::mapToDto);
     }
 
+    /**
+     * Сохраняет запись очереди.
+     *
+     * @param entry сущность
+     * @return DTO после сохранения
+     */
     public QueueEntryDto saveQueueEntry(QueueEntry entry) {
         QueueEntry saved = queueEntryRepository.save(entry);
         return mapToDto(saved);
     }
 
+    /**
+     * Удаляет запись очереди по id.
+     *
+     * @param id первичный ключ
+     */
     public void deleteQueueEntry(Long id) {
         queueEntryRepository.deleteById(id);
     }
 
     /**
-     * Добавляет пациента в очередь к врачу
+     * Добавляет пациента в конец очереди к врачу с опциональной привязкой к приёму.
+     *
+     * @param patientId     идентификатор пациента
+     * @param doctorId      идентификатор врача
+     * @param appointmentId идентификатор приёма или {@code null}
+     * @return созданный {@link QueueEntryDto}
+     * @throws IllegalStateException    если пациент уже стоит в очереди к этому врачу
+     * @throws IllegalArgumentException если пациент или врач не найдены
      */
     @Transactional
     public QueueEntryDto addPatientToQueue(Long patientId, Long doctorId, Long appointmentId) {
@@ -93,7 +134,11 @@ public class QueueService {
     }
 
     /**
-     * Получает позицию пациента в очереди к врачу
+     * Возвращает запись очереди для пары пациент–врач.
+     *
+     * @param patientId идентификатор пациента
+     * @param doctorId  идентификатор врача
+     * @return {@link QueueEntryDto}, если запись есть
      */
     public Optional<QueueEntryDto> getPatientQueuePosition(Long patientId, Long doctorId) {
         return queueEntryRepository.findByPatientIdAndDoctorId(patientId, doctorId)
@@ -101,8 +146,11 @@ public class QueueService {
     }
 
     /**
-     * Проверяет, является ли пациент следующим в очереди
-     * (если нет записи перед текущей, значит текущий пользователь следующий)
+     * Определяет, является ли пациент «следующим» (позиция 0 или нет записей с меньшей позицией перед ним).
+     *
+     * @param patientId идентификатор пациента
+     * @param doctorId  идентификатор врача
+     * @return {@code true}, если пациент следующий в очереди
      */
     public boolean isPatientNextInQueue(Long patientId, Long doctorId) {
         Optional<QueueEntry> patientEntry = queueEntryRepository.findByPatientIdAndDoctorId(patientId, doctorId);
@@ -126,7 +174,10 @@ public class QueueService {
     }
 
     /**
-     * Получает все очереди для конкретного пациента
+     * Все очереди, в которых участвует пациент (по разным врачам).
+     *
+     * @param patientId идентификатор пациента
+     * @return список {@link QueueEntryDto}
      */
     public List<QueueEntryDto> getQueuesByPatient(Long patientId) {
         return queueEntryRepository.findByPatientId(patientId).stream()
@@ -135,7 +186,10 @@ public class QueueService {
     }
 
     /**
-     * Удаляет пациента из очереди
+     * Удаляет запись очереди для пары пациент–врач без пересчёта позиций остальных.
+     *
+     * @param patientId идентификатор пациента
+     * @param doctorId  идентификатор врача
      */
     @Transactional
     public void removePatientFromQueue(Long patientId, Long doctorId) {
@@ -147,12 +201,11 @@ public class QueueService {
     }
 
     /**
-     * Удаляет пациента из очереди с автоматическим сдвигом позиций всех последующих пациентов
-     * Аналог Lua-скрипта для Redis, но реализован на JPQL
-     * 
-     * @param patientId ID пациента
-     * @param doctorId ID врача
-     * @return true если пациент был удален, false если не найден
+     * Удаляет пациента из очереди и уменьшает позиции всех, кто стоял за ним (логика аналогична Lua в Redis).
+     *
+     * @param patientId идентификатор пациента
+     * @param doctorId  идентификатор врача
+     * @return {@code true}, если запись была найдена и удалена
      */
     @Transactional
     public boolean removeFromQueueAndShift(Long patientId, Long doctorId) {
@@ -174,12 +227,12 @@ public class QueueService {
     }
 
     /**
-     * Автоматически строит очередь для пациента на основе его appointments
-     * Пропускает прошедшие записи (если сейчас на 20+ минут больше времени приема)
-     * Позиции в очереди учитывают всех пациентов к врачу, отсортированных по времени appointments
-     * 
-     * @param patientId ID пациента
-     * @return Список созданных записей в очереди
+     * Пересобирает записи очереди пациента по предстоящим приёмам: группировка по врачу, позиция по времени среди всех пациентов врача.
+     *
+     * <p>Приёмы сильно ушедшие в прошлое отсекаются относительно {@code now - 20} минут.
+     *
+     * @param patientId идентификатор пациента
+     * @return созданные или обновлённые {@link QueueEntryDto}
      */
     @Transactional
     public List<QueueEntryDto> buildQueueFromAppointments(Long patientId) {
@@ -267,10 +320,9 @@ public class QueueService {
     }
 
     /**
-     * Обновляет очереди всех пациентов к врачу после завершения приема
-     * Удаляет завершенные записи из очереди и пересчитывает позиции
-     * 
-     * @param doctorId ID врача
+     * После завершения приёма пересобирает очереди в БД для каждого пациента, у кого есть записи к этому врачу.
+     *
+     * @param doctorId идентификатор врача
      */
     @Transactional
     public void updateQueuesAfterAppointmentCompletion(Long doctorId) {
@@ -302,10 +354,10 @@ public class QueueService {
     }
     
     /**
-     * Получает список всех пациентов, которые находятся в очереди к врачу
-     * 
-     * @param doctorId ID врача
-     * @return Список ID пациентов
+     * Уникальные идентификаторы пациентов в очереди к врачу (порядок по позиции в очереди).
+     *
+     * @param doctorId идентификатор врача
+     * @return список id пациентов
      */
     public List<Long> getPatientIdsInQueue(Long doctorId) {
         return queueEntryRepository.findByDoctorIdOrderByPositionAsc(doctorId).stream()
@@ -315,6 +367,12 @@ public class QueueService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Преобразует сущность очереди в DTO с id врача, приёма и пациента.
+     *
+     * @param entry запись из БД
+     * @return {@link QueueEntryDto}
+     */
     private QueueEntryDto mapToDto(QueueEntry entry) {
         return new QueueEntryDto(
                 entry.getId(),

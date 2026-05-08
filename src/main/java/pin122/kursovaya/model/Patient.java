@@ -6,6 +6,9 @@ import lombok.Data;
 import java.time.OffsetDateTime;
 import java.time.LocalDate;
 
+/**
+ * JPA-сущность профиля пациента: связь один-к-одному с {@link User}, дата рождения, пол, номер полиса.
+ */
 @Data
 @Entity
 @Table(name = "patients")
@@ -33,6 +36,15 @@ public class Patient {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt = OffsetDateTime.now();
 
+    /**
+     * @param id идентификатор
+     * @param user учётная запись
+     * @param birthDate дата рождения
+     * @param gender пол
+     * @param insuranceNumber номер полиса
+     * @param createdAt время создания
+     * @param updatedAt время обновления
+     */
     public Patient(Long id, User user, LocalDate birthDate, Short gender, String insuranceNumber, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
         this.id = id;
         this.user = user;
@@ -43,6 +55,13 @@ public class Patient {
         this.updatedAt = updatedAt;
     }
 
+    /**
+     * @param birthDate дата рождения
+     * @param gender пол
+     * @param insuranceNumber номер полиса
+     * @param createdAt время создания
+     * @param updatedAt время обновления
+     */
     public Patient(LocalDate birthDate, Short gender, String insuranceNumber, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
         this.birthDate = birthDate;
         this.gender = gender;

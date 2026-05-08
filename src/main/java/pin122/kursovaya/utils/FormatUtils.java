@@ -1,69 +1,91 @@
 package pin122.kursovaya.utils;
 
+import pin122.kursovaya.model.User;
+
 /**
- * Утилиты для форматирования данных
+ * Вспомогательные функции нормализации строк (телефон, СНИЛС) и отображаемого имени врача по {@link User}.
  */
 public class FormatUtils {
-    
+
     /**
-     * Нормализует номер телефона к формату +79001110023
-     * Убирает все пробелы, скобки, дефисы
-     * 
-     * @param phone Исходный номер телефона
-     * @return Нормализованный номер или null, если входная строка null/пустая
+     * Формирует отображаемое ФИО врача из полей связанного {@link User}.
+     *
+     * <p>Колонка {@code display_name} в сущности врача в этом сценарии не используется.
+     *
+     * @param user пользователь врача (может быть {@code null})
+     * @return строка ФИО через пробел или пустая строка, если {@code user == null}
+     */
+    public static String doctorDisplayName(User user) {
+        if (user == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        appendPart(sb, user.getLastName());
+        appendPart(sb, user.getFirstName());
+        appendPart(sb, user.getMiddleName());
+        return sb.toString();
+    }
+
+    /**
+     * Добавляет непустой фрагмент к строке с разделителем-пробелом.
+     *
+     * @param sb   накапливающий {@link StringBuilder}
+     * @param part фрагмент ФИО (может быть {@code null} или пустым)
+     */
+    private static void appendPart(StringBuilder sb, String part) {
+        if (part == null || part.isBlank()) {
+            return;
+        }
+        if (sb.length() > 0) {
+            sb.append(' ');
+        }
+        sb.append(part.trim());
+    }
+
+    /**
+     * Приводит номер телефона к виду {@code +79001110023}: удаляет пробелы, скобки и дефисы, нормализует префикс для РФ.
+     *
+     * @param phone исходный номер
+     * @return нормализованный номер или {@code null}, если вход {@code null} или пустой после trim
      */
     public static String normalizePhone(String phone) {
         if (phone == null || phone.trim().isEmpty()) {
             return null;
         }
-        
-        // Убираем все символы кроме цифр и +
+
         String normalized = phone.replaceAll("[^0-9+]", "");
-        
-        // Если номер начинается с 8, заменяем на +7
+
         if (normalized.startsWith("8") && normalized.length() == 11) {
             normalized = "+7" + normalized.substring(1);
-        }
-        // Если номер начинается с 7 и нет +, добавляем +
-        else if (normalized.startsWith("7") && !normalized.startsWith("+7") && normalized.length() == 11) {
+        } else if (normalized.startsWith("7") && !normalized.startsWith("+7") && normalized.length() == 11) {
             normalized = "+" + normalized;
-        }
-        // Если номер не начинается с +, добавляем +7
-        else if (!normalized.startsWith("+") && normalized.length() == 10) {
+        } else if (!normalized.startsWith("+") && normalized.length() == 10) {
             normalized = "+7" + normalized;
         }
-        
+
         return normalized;
     }
-    
+
     /**
-     * Нормализует СНИЛС к формату 123-456-789-04
-     * Формат: XXX-XXX-XXX-XX
-     * 
-     * @param insuranceNumber Исходный СНИЛС
-     * @return Нормализованный СНИЛС или null, если входная строка null/пустая
+     * Приводит номер полиса/СНИЛС к виду {@code XXX-XXX-XXX-XX}; при неверной длине возвращает trim исходной строки.
+     *
+     * @param insuranceNumber исходная строка
+     * @return строка из 11 цифр с дефисами или исходный trim, если после удаления нецифровых символов длина не 11
      */
     public static String normalizeInsuranceNumber(String insuranceNumber) {
         if (insuranceNumber == null || insuranceNumber.trim().isEmpty()) {
             return null;
         }
-        
-        // Убираем все символы кроме цифр
+
         String digits = insuranceNumber.replaceAll("[^0-9]", "");
-        
-        // Проверяем, что осталось 11 цифр
+
         if (digits.length() != 11) {
-            return insuranceNumber.trim(); // Возвращаем исходное, если формат неверный
+            return insuranceNumber.trim();
         }
-        
-        // Форматируем: XXX-XXX-XXX-XX
-        return digits.substring(0, 3) + "-" + 
-               digits.substring(3, 6) + "-" + 
-               digits.substring(6, 9) + "-" + 
-               digits.substring(9, 11);
+
+        return digits.substring(0, 3) + "-"
+                + digits.substring(3, 6) + "-"
+                + digits.substring(6, 9) + "-"
+                + digits.substring(9, 11);
     }
 }
-
-
-
-
