@@ -411,5 +411,33 @@ public class EmailNotificationService {
             logger.error("Ошибка при сохранении уведомления в БД: {}", e.getMessage());
         }
     }
+
+    /**
+     * Отправляет пациенту или врачу письмо с логином и паролем после создания учётной записи администратором.
+     *
+     * @param email          адрес получателя (логин)
+     * @param password       временный пароль в открытом виде (только при создании учётки)
+     * @param recipientName  имя получателя для приветствия в письме
+     */
+    public void sendLoginCredentialsEmail(String email, String password, String recipientName) {
+        if (email == null || email.isBlank()) {
+            logger.warn("Невозможно отправить учётные данные: email не указан");
+            return;
+        }
+
+        try {
+            Context context = new Context();
+            context.setVariable("recipientName", recipientName != null ? recipientName.trim() : "");
+            context.setVariable("loginEmail", email);
+            context.setVariable("password", password);
+
+            String subject = "Данные для входа в личный кабинет";
+            emailService.sendHtmlEmail(email, subject, "login-credentials", context);
+            logger.info("Отправлены учётные данные для входа на {}", email);
+        } catch (Exception e) {
+            logger.error("Ошибка при отправке учётных данных на {}: {}", email, e.getMessage());
+            throw new IllegalStateException("Не удалось отправить письмо", e);
+        }
+    }
 }
 

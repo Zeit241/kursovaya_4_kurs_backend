@@ -14,6 +14,7 @@ import pin122.kursovaya.repository.QueueEntryRepository;
 import pin122.kursovaya.repository.ReviewRepository;
 import pin122.kursovaya.repository.RoleRepository;
 import pin122.kursovaya.repository.UserRepository;
+import pin122.kursovaya.utils.EncryptPassword;
 import pin122.kursovaya.utils.FormatUtils;
 
 import java.time.OffsetDateTime;
@@ -100,6 +101,7 @@ public class PatientService {
         user.setFirstName(request.getUser().getFirstName());
         user.setLastName(request.getUser().getLastName());
         user.setMiddleName(request.getUser().getMiddleName());
+        user.setPasswordHash(EncryptPassword.hashPassword(request.getPassword()));
         user.setActive(true);
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());

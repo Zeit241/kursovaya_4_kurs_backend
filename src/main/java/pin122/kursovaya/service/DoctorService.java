@@ -32,6 +32,7 @@ import pin122.kursovaya.repository.ScheduleRepository;
 import pin122.kursovaya.repository.SpecializationRepository;
 import pin122.kursovaya.repository.UserRepository;
 import pin122.kursovaya.utils.DoctorPhotoUrls;
+import pin122.kursovaya.utils.EncryptPassword;
 import pin122.kursovaya.utils.FormatUtils;
 
 import java.time.OffsetDateTime;
@@ -343,6 +344,7 @@ public class DoctorService {
         user.setFirstName(request.getUser().getFirstName());
         user.setLastName(request.getUser().getLastName());
         user.setMiddleName(request.getUser().getMiddleName());
+        user.setPasswordHash(EncryptPassword.hashPassword(request.getPassword()));
         user.setActive(true);
         user.setCreatedAt(OffsetDateTime.now());
         user.setUpdatedAt(OffsetDateTime.now());

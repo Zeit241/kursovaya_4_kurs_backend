@@ -1,6 +1,7 @@
 package pin122.kursovaya.dto;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -15,6 +16,9 @@ public class CreatePatientRequest {
     @NotNull(message = "Данные пользователя обязательны")
     @Valid
     private UserDto user;
+
+    @NotBlank(message = "Пароль не может быть пустым")
+    private String password;
     
     private LocalDate birthDate;
     

@@ -95,6 +95,7 @@ public class AppointmentService {
      * @param date     дата или {@code null}
      * @return отфильтрованный список {@link AppointmentDto}
      */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public List<AppointmentDto> getAppointmentsFiltered(Long doctorId, String status, LocalDate date) {
         OffsetDateTime startOfDay = null;
         OffsetDateTime startOfNextDay = null;

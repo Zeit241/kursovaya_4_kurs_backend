@@ -15,6 +15,9 @@ public class CreateDoctorRequest {
     @NotNull(message = "Данные пользователя обязательны")
     @Valid
     private UserDto user;
+
+    @NotBlank(message = "Пароль не может быть пустым")
+    private String password;
     
     /** Устарело: не сохраняется в БД; в ответах API имя собирается из ФИО пользователя. */
     private String displayName;
