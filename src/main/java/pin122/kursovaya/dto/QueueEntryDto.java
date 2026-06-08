@@ -12,6 +12,8 @@ public class QueueEntryDto {
     private Long doctorId;
     private Long appointmentId; // может быть null, если очередь без записи
     private Long patientId;
+    /** ФИО пациента для отображения в UI очереди */
+    private String patientFullName;
     private Integer position;
     private OffsetDateTime lastUpdated;
 

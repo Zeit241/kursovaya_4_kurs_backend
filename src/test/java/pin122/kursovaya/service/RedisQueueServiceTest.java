@@ -16,7 +16,11 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import pin122.kursovaya.dto.QueueEntryDto;
 import pin122.kursovaya.dto.WebSocketSessionData;
+import pin122.kursovaya.model.Appointment;
+import pin122.kursovaya.model.Doctor;
+import pin122.kursovaya.model.Patient;
 import pin122.kursovaya.repository.AppointmentRepository;
+import pin122.kursovaya.repository.PatientRepository;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -44,6 +48,9 @@ class RedisQueueServiceTest {
     private AppointmentRepository appointmentRepository;
 
     @Mock
+    private PatientRepository patientRepository;
+
+    @Mock
     private SimpMessagingTemplate messagingTemplate;
 
     @Mock
@@ -64,7 +71,7 @@ class RedisQueueServiceTest {
         lenient().when(redisTemplate.opsForSet()).thenReturn(setOperations);
         lenient().when(redisTemplate.opsForZSet()).thenReturn(zSetOperations);
         redisQueueService = new RedisQueueService(
-                redisTemplate, removeAndShiftScript, appointmentRepository, messagingTemplate);
+                redisTemplate, removeAndShiftScript, appointmentRepository, patientRepository, messagingTemplate);
         objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
     }
@@ -249,5 +256,38 @@ class RedisQueueServiceTest {
 
         verify(messagingTemplate).convertAndSendToUser(
                 eq("user@test.com"), eq("/queue/user"), any(RedisQueueService.QueueInitResponse.class));
+    }
+
+    @Test
+    @DisplayName("recalculateQueueForDoctor включает активные статусы и исключает no_show")
+    void recalculateQueueForDoctor_excludesNoShowFromRebuiltQueue() {
+        LocalDate today = LocalDate.now();
+        String queueKey = "queue:doctor:9:" + today;
+        Appointment waiting = appointment(101L, 201L, "waiting", OffsetDateTime.now().plusHours(1));
+        Appointment noShow = appointment(102L, 202L, "no_show", OffsetDateTime.now().plusHours(2));
+        when(appointmentRepository.findByDoctorId(9L)).thenReturn(List.of(waiting, noShow));
+        when(zSetOperations.rangeWithScores(queueKey, 0, -1)).thenReturn(Collections.emptySet());
+
+        redisQueueService.recalculateQueueForDoctor(9L, today);
+
+        verify(redisTemplate).delete(queueKey);
+        verify(zSetOperations).add(queueKey, "patient:201", 0.0);
+        verify(zSetOperations, never()).add(queueKey, "patient:202", 1.0);
+        verify(messagingTemplate).convertAndSend(
+                eq("/topic/queue/doctor/9"), any(RedisQueueService.QueueUpdateEvent.class));
+    }
+
+    private static Appointment appointment(Long appointmentId, Long patientId, String status, OffsetDateTime startTime) {
+        Doctor doctor = new Doctor();
+        doctor.setId(9L);
+        Patient patient = new Patient();
+        patient.setId(patientId);
+        Appointment appointment = new Appointment();
+        appointment.setId(appointmentId);
+        appointment.setDoctor(doctor);
+        appointment.setPatient(patient);
+        appointment.setStatus(status);
+        appointment.setStartTime(startTime);
+        return appointment;
     }
 }

@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pin122.kursovaya.dto.AppointmentDto;
+import pin122.kursovaya.dto.BookAppointmentResult;
 import pin122.kursovaya.model.Appointment;
 import pin122.kursovaya.model.Patient;
 import pin122.kursovaya.repository.AppointmentRepository;
@@ -14,13 +15,12 @@ import pin122.kursovaya.repository.ServiceRepository;
 import pin122.kursovaya.utils.DoctorPhotoUrls;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -154,7 +154,7 @@ public class AppointmentService {
         OffsetDateTime startOfDay = date.atStartOfDay().atOffset(java.time.ZoneOffset.UTC);
         OffsetDateTime startOfNextDay = date.plusDays(1).atStartOfDay().atOffset(java.time.ZoneOffset.UTC);
         
-        return appointmentRepository.findByDoctorIdAndDate(doctorId, startOfDay, startOfNextDay).stream()
+        return appointmentRepository.findByDoctorIdAndDateWithDetails(doctorId, startOfDay, startOfNextDay).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
     }
@@ -190,7 +190,12 @@ public class AppointmentService {
      * @return {@link AppointmentDto}
      */
     public AppointmentDto saveAppointment(Appointment appointment) {
+        Appointment before = appointment.getId() != null
+                ? appointmentRepository.findById(appointment.getId()).map(this::snapshotForQueue).orElse(null)
+                : null;
         Appointment saved = appointmentRepository.save(appointment);
+        redisQueueService.syncQueueForAppointmentChange(before, saved);
+        notifyPatientQueue(saved);
         return mapToDto(saved);
     }
 
@@ -200,7 +205,9 @@ public class AppointmentService {
      * @param id первичный ключ
      */
     public void deleteAppointment(Long id) {
+        Appointment before = appointmentRepository.findById(id).map(this::snapshotForQueue).orElse(null);
         appointmentRepository.deleteById(id);
+        redisQueueService.syncQueueForAppointmentChange(before, null);
     }
     
     /**
@@ -229,8 +236,8 @@ public class AppointmentService {
         }
         
         Appointment appointment = appointmentOpt.get();
+        Appointment before = snapshotForQueue(appointment);
         String oldStatus = appointment.getStatus();
-        Long doctorId = appointment.getDoctor() != null ? appointment.getDoctor().getId() : null;
         
         // Проверяем, что запись еще не отменена
         if ("cancelled".equals(oldStatus)) {
@@ -244,20 +251,9 @@ public class AppointmentService {
         appointment.setUpdatedAt(OffsetDateTime.now());
         
         Appointment saved = appointmentRepository.save(appointment);
+        redisQueueService.syncQueueForAppointmentChange(before, saved);
+        notifyPatientQueue(saved);
         
-        // Удаляем из очереди, если пациент был в очереди
-        if (saved.getPatient() != null && doctorId != null && saved.getStartTime() != null) {
-            LocalDate queueDay = saved.getStartTime().atZoneSameInstant(ZoneId.systemDefault()).toLocalDate();
-            redisQueueService.removeFromQueue(
-                saved.getPatient().getId(),
-                doctorId,
-                queueDay
-            );
-
-            redisQueueService.recalculateQueueForDoctor(doctorId, queueDay);
-        }
-        
-        // Отправляем email уведомление об отмене
         if (notificationsEnabled && saved.getPatient() != null) {
             emailNotificationService.sendAppointmentCancelledNotification(saved, cancelReason);
         }
@@ -280,8 +276,8 @@ public class AppointmentService {
         }
         
         Appointment appointment = appointmentOpt.get();
+        Appointment before = snapshotForQueue(appointment);
         String oldStatus = appointment.getStatus();
-        Long doctorId = appointment.getDoctor() != null ? appointment.getDoctor().getId() : null;
         
         // Проверяем, что статус изменился
         if (newStatus.equals(oldStatus)) {
@@ -292,20 +288,8 @@ public class AppointmentService {
         appointment.setUpdatedAt(OffsetDateTime.now());
         
         Appointment saved = appointmentRepository.save(appointment);
-        
-        // Если статус стал "terminal" → удаляем из очереди и пересчитываем позиции
-        if (isTerminalStatus(newStatus) && !isTerminalStatus(oldStatus)) {
-            if (saved.getPatient() != null && doctorId != null && saved.getStartTime() != null) {
-                LocalDate queueDay = saved.getStartTime().atZoneSameInstant(ZoneId.systemDefault()).toLocalDate();
-                redisQueueService.removeFromQueue(
-                    saved.getPatient().getId(),
-                    doctorId,
-                    queueDay
-                );
-
-                redisQueueService.recalculateQueueForDoctor(doctorId, queueDay);
-            }
-        }
+        redisQueueService.syncQueueForAppointmentChange(before, saved);
+        notifyPatientQueue(saved);
         
         // Отправляем email уведомления об изменении статуса
         if (notificationsEnabled && saved.getPatient() != null) {
@@ -322,16 +306,6 @@ public class AppointmentService {
         return Optional.of(mapToDto(saved));
     }
 
-    /**
-     * Признак терминального статуса приёма: {@code completed}, {@code cancelled}, {@code no_show}.
-     *
-     * @param status код статуса
-     * @return {@code true}, если статус терминальный
-     */
-    private boolean isTerminalStatus(String status) {
-        return Set.of("completed", "cancelled", "no_show").contains(status);
-    }
-    
     /**
      * Свободные слоты врача на дату без фильтра по услуге.
      *
@@ -352,12 +326,14 @@ public class AppointmentService {
      * @param serviceId идентификатор услуги или {@code null}
      * @return отфильтрованный список {@link AppointmentDto}
      */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public List<AppointmentDto> getAvailableAppointments(Long doctorId, LocalDate date, Long serviceId) {
-        OffsetDateTime startOfDay = date.atStartOfDay().atOffset(java.time.ZoneOffset.UTC);
-        OffsetDateTime startOfNextDay = date.plusDays(1).atStartOfDay().atOffset(java.time.ZoneOffset.UTC);
+        OffsetDateTime startOfDay = date.atStartOfDay().atOffset(ZoneOffset.UTC);
+        OffsetDateTime startOfNextDay = date.plusDays(1).atStartOfDay().atOffset(ZoneOffset.UTC);
+        OffsetDateTime nowTs = clinicWallClockNow();
 
-        List<Appointment> appointments = appointmentRepository.findByDoctorIdAndDateFetchingService(
-                doctorId, startOfDay, startOfNextDay);
+        List<Appointment> appointments = appointmentRepository.findBookableSlotsByDoctorAndDate(
+                doctorId, startOfDay, startOfNextDay, nowTs);
         return appointments.stream()
                 .filter(a -> serviceId == null
                         || a.getService() == null
@@ -409,7 +385,7 @@ public class AppointmentService {
      */
     @Transactional
     public Optional<AppointmentDto> bookAppointment(Long appointmentId, Long userId) {
-        return bookAppointment(appointmentId, userId, null);
+        return bookAppointmentResult(appointmentId, userId, null, null).toOptional();
     }
 
     /**
@@ -422,54 +398,77 @@ public class AppointmentService {
      */
     @Transactional
     public Optional<AppointmentDto> bookAppointment(Long appointmentId, Long userId, Long serviceId) {
+        return bookAppointmentResult(appointmentId, userId, null, serviceId).toOptional();
+    }
+
+    /**
+     * Бронирование с текстом ошибки для REST.
+     */
+    @Transactional
+    public BookAppointmentResult bookAppointmentResult(
+            Long appointmentId, Long userId, Long patientId, Long serviceId) {
         Optional<Appointment> appointmentOpt = appointmentRepository.findById(appointmentId);
         if (appointmentOpt.isEmpty()) {
-            return Optional.empty();
+            return BookAppointmentResult.failure("Слот не найден");
         }
-        
+
         Appointment appointment = appointmentOpt.get();
-        
-        // Проверяем, что appointment не занят
+        OffsetDateTime nowTs = clinicWallClockNow();
+
+        if (appointment.getStartTime() != null && !appointment.getStartTime().isAfter(nowTs)) {
+            return BookAppointmentResult.failure("Время приёма уже прошло");
+        }
+
         if (appointment.getPatient() != null) {
-            return Optional.empty(); // Уже занят
+            return BookAppointmentResult.failure("Слот уже занят");
         }
 
         if (serviceId != null) {
             pin122.kursovaya.model.Service existing = appointment.getService();
             if (existing != null && !serviceId.equals(existing.getId())) {
-                return Optional.empty();
+                return BookAppointmentResult.failure("Услуга не совпадает со слотом");
             }
             if (existing == null) {
                 Optional<pin122.kursovaya.model.Service> svcOpt = serviceRepository.findById(serviceId);
                 if (svcOpt.isEmpty()) {
-                    return Optional.empty();
+                    return BookAppointmentResult.failure("Услуга не найдена");
                 }
                 appointment.setService(svcOpt.get());
             }
         }
-        
-        // Находим пациента по user_id
-        Optional<Patient> patientOpt = patientRepository.findByUserId(userId);
-        
+
+        Optional<Patient> patientOpt = resolvePatientForBooking(patientId, userId);
         if (patientOpt.isEmpty()) {
-            return Optional.empty(); // Пациент не найден
+            return BookAppointmentResult.failure("Пациент не найден");
         }
-        
+
         Patient patient = patientOpt.get();
         appointment.setPatient(patient);
         appointment.setStatus("scheduled");
-        appointment.setUpdatedAt(java.time.OffsetDateTime.now());
-        
+        appointment.setUpdatedAt(OffsetDateTime.now());
+
         Appointment saved = appointmentRepository.save(appointment);
-        
-        // Отправляем уведомление о записи
-        // Используем patient из контекста транзакции, чтобы гарантировать доступ к User
+        redisQueueService.syncQueueForAppointmentChange(null, saved);
+        notifyPatientQueue(saved);
+
         if (notificationsEnabled && patient.getUser() != null) {
-            saved.setPatient(patient); // Гарантируем, что patient с загруженным user установлен
+            saved.setPatient(patient);
             emailNotificationService.sendAppointmentBookedNotification(saved);
         }
-        
-        return Optional.of(mapToDto(saved));
+
+        return BookAppointmentResult.success(mapToDto(saved));
+    }
+
+    private Optional<Patient> resolvePatientForBooking(Long patientId, Long userId) {
+        if (patientId != null) {
+            return patientRepository.findById(patientId);
+        }
+        return patientRepository.findByUserId(userId);
+    }
+
+    /** «Сейчас» в том же wall-clock формате, что и start_time в БД (локальное время с суффиксом Z). */
+    static OffsetDateTime clinicWallClockNow() {
+        return LocalDateTime.now().atOffset(ZoneOffset.UTC);
     }
     
     /**
@@ -479,15 +478,12 @@ public class AppointmentService {
      * @return DTO для REST
      */
     private AppointmentDto mapToDto(Appointment appointment) {
-        java.time.LocalDateTime nowLocal = java.time.LocalDateTime.now();
+        OffsetDateTime nowWall = clinicWallClockNow();
         boolean hasPatient = appointment.getPatient() != null;
         
-        // Сравниваем по локальному времени (без учёта часовых поясов)
-        // startTime из БД берём как LocalDateTime, игнорируя Z
         boolean isPastSlot = false;
         if (appointment.getStartTime() != null) {
-            java.time.LocalDateTime slotLocal = appointment.getStartTime().toLocalDateTime();
-            isPastSlot = slotLocal.isBefore(nowLocal);
+            isPastSlot = !appointment.getStartTime().isAfter(nowWall);
         }
         
         // isBooked = true если есть пациент ИЛИ если слот в прошлом (нельзя записаться в прошедший слот)
@@ -532,6 +528,8 @@ public class AppointmentService {
                 patientInfo.setMiddleName(user.getMiddleName());
                 patientInfo.setPhone(user.getPhone());
                 patientInfo.setEmail(user.getEmail());
+                patientInfo.setFullName(formatPersonFullName(
+                        user.getLastName(), user.getFirstName(), user.getMiddleName()));
             }
             dto.setPatient(patientInfo);
         }
@@ -568,6 +566,7 @@ public class AppointmentService {
             roomInfo.setId(appointment.getRoom().getId());
             roomInfo.setCode(appointment.getRoom().getCode());
             roomInfo.setName(appointment.getRoom().getName());
+            roomInfo.setDisplayName(resolveRoomDisplayName(appointment.getRoom()));
             dto.setRoom(roomInfo);
         }
         
@@ -594,5 +593,71 @@ public class AppointmentService {
         }
         
         return dto;
+    }
+
+    private Appointment snapshotForQueue(Appointment appointment) {
+        if (appointment == null) {
+            return null;
+        }
+        Appointment snapshot = new Appointment();
+        snapshot.setDoctor(appointment.getDoctor());
+        snapshot.setPatient(appointment.getPatient());
+        snapshot.setStartTime(appointment.getStartTime());
+        snapshot.setStatus(appointment.getStatus());
+        return snapshot;
+    }
+
+    private void notifyPatientQueue(Appointment appointment) {
+        if (appointment == null || appointment.getPatient() == null || appointment.getPatient().getUser() == null) {
+            return;
+        }
+        String email = appointment.getPatient().getUser().getEmail();
+        if (email == null || email.isBlank()) {
+            return;
+        }
+        redisQueueService.notifyUserQueueUpdate(
+                email,
+                redisQueueService.getQueuesByPatient(appointment.getPatient().getId()));
+    }
+
+    private static String formatPersonFullName(String lastName, String firstName, String middleName) {
+        StringBuilder sb = new StringBuilder();
+        if (lastName != null && !lastName.isBlank()) {
+            sb.append(lastName.trim());
+        }
+        if (firstName != null && !firstName.isBlank()) {
+            if (!sb.isEmpty()) {
+                sb.append(' ');
+            }
+            sb.append(firstName.trim());
+        }
+        if (middleName != null && !middleName.isBlank()) {
+            if (!sb.isEmpty()) {
+                sb.append(' ');
+            }
+            sb.append(middleName.trim());
+        }
+        return sb.isEmpty() ? null : sb.toString();
+    }
+
+    private static String resolveRoomDisplayName(pin122.kursovaya.model.Room room) {
+        if (room == null) {
+            return null;
+        }
+        if (room.getName() != null && !room.getName().isBlank()) {
+            return room.getName().trim();
+        }
+        String code = room.getCode();
+        if (code == null || code.isBlank()) {
+            return null;
+        }
+        int lastUnderscore = code.lastIndexOf('_');
+        if (lastUnderscore >= 0 && lastUnderscore < code.length() - 1) {
+            String suffix = code.substring(lastUnderscore + 1);
+            if (suffix.matches("\\d+")) {
+                return "Кабинет №" + suffix;
+            }
+        }
+        return code;
     }
 }

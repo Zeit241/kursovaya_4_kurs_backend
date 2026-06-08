@@ -58,6 +58,13 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
     List<Appointment> findByPatientId(Long patientId);
 
     /**
+     * Проверяет, есть ли у пациента хотя бы один приём у указанного врача.
+     */
+    @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM Appointment a " +
+           "WHERE a.patient.id = :patientId AND a.doctor.id = :doctorId")
+    boolean existsByPatientIdAndDoctorId(@Param("patientId") Long patientId, @Param("doctorId") Long doctorId);
+
+    /**
      * Возвращает приёмы пациента с подгрузкой пациента, пользователей, врача, специализаций и кабинета.
      * <p>
      * JPQL-запрос: аналогично {@link #findByDoctorIdWithDetails(Long)}, но фильтр по {@code patient.id}
@@ -95,6 +102,22 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
                                              @Param("startOfNextDay") OffsetDateTime startOfNextDay);
 
     /**
+     * Приёмы врача за сутки с подгрузкой пациента, пользователя, кабинета, услуги и диагноза.
+     */
+    @Query("SELECT DISTINCT a FROM Appointment a " +
+           "LEFT JOIN FETCH a.patient p " +
+           "LEFT JOIN FETCH p.user " +
+           "LEFT JOIN FETCH a.room " +
+           "LEFT JOIN FETCH a.service " +
+           "LEFT JOIN FETCH a.diagnosis " +
+           "WHERE a.doctor.id = :doctorId " +
+           "AND a.startTime >= :startOfDay AND a.startTime < :startOfNextDay " +
+           "ORDER BY a.startTime")
+    List<Appointment> findByDoctorIdAndDateWithDetails(@Param("doctorId") Long doctorId,
+                                                        @Param("startOfDay") OffsetDateTime startOfDay,
+                                                        @Param("startOfNextDay") OffsetDateTime startOfNextDay);
+
+    /**
      * Возвращает приёмы врача за сутки с подгрузкой услуги, чтобы избежать проблемы N+1 при отображении записи.
      * <p>
      * JPQL-запрос: {@code DISTINCT} и {@code LEFT JOIN FETCH a.service}, фильтр по врачу и полуинтервалу {@code startTime}.
@@ -109,6 +132,19 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
     List<Appointment> findByDoctorIdAndDateFetchingService(@Param("doctorId") Long doctorId,
                                                            @Param("startOfDay") OffsetDateTime startOfDay,
                                                            @Param("startOfNextDay") OffsetDateTime startOfNextDay);
+
+    /**
+     * Свободные для записи слоты врача за сутки: без пациента и в будущем.
+     */
+    @Query("SELECT DISTINCT a FROM Appointment a LEFT JOIN FETCH a.service WHERE a.doctor.id = :doctorId " +
+           "AND a.startTime >= :startOfDay AND a.startTime < :startOfNextDay " +
+           "AND a.patient IS NULL " +
+           "AND a.startTime > :nowTs " +
+           "ORDER BY a.startTime")
+    List<Appointment> findBookableSlotsByDoctorAndDate(@Param("doctorId") Long doctorId,
+                                                       @Param("startOfDay") OffsetDateTime startOfDay,
+                                                       @Param("startOfNextDay") OffsetDateTime startOfNextDay,
+                                                       @Param("nowTs") OffsetDateTime nowTs);
 
     /**
      * Возвращает предстоящие приёмы пациента: не завершённые и не отменённые, время начала не раньше {@code currentTime}.

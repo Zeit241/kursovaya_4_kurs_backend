@@ -187,7 +187,14 @@ public class AppointmentController {
      * @return HTTP 200 и список {@link AppointmentDto}
      */
     @GetMapping("/patient/{patientId}")
-    public ResponseEntity<List<AppointmentDto>> getByPatient(@PathVariable Long patientId) {
+    public ResponseEntity<?> getByPatient(@PathVariable Long patientId) {
+        Optional<User> userOpt = SecurityUtils.getCurrentUser(userRepository);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(401).body(Map.of("error", "Не авторизован"));
+        }
+        if (!canReadPatientAppointments(userOpt.get(), patientId)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Нет доступа к приёмам пациента"));
+        }
         return ResponseEntity.ok(appointmentService.getAppointmentsByPatient(patientId));
     }
 
@@ -256,16 +263,19 @@ public class AppointmentController {
      * @return HTTP 200 и обновлённая запись или HTTP 400 при неудаче бронирования
      */
     @PostMapping("/book")
-    public ResponseEntity<AppointmentDto> book(@Valid @RequestBody BookAppointmentRequest request) {
+    public ResponseEntity<?> book(@Valid @RequestBody BookAppointmentRequest request) {
         logger.info("Booking appointment: appointmentId={}, userId={}, serviceId={}",
                 request.getAppointmentId(), request.getUserId(), request.getServiceId());
 
-        return appointmentService.bookAppointment(
-                        request.getAppointmentId(),
-                        request.getUserId(),
-                        request.getServiceId())
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.badRequest().build());
+        var result = appointmentService.bookAppointmentResult(
+                request.getAppointmentId(),
+                request.getUserId(),
+                request.getPatientId(),
+                request.getServiceId());
+        if (result.isSuccess()) {
+            return ResponseEntity.ok(result.getAppointment());
+        }
+        return ResponseEntity.badRequest().body(Map.of("message", result.getErrorMessage()));
     }
 
     /**
@@ -305,6 +315,7 @@ public class AppointmentController {
         }
         
         Appointment appointment = appointmentOpt.get();
+        Appointment beforeQueueState = snapshotForQueue(appointment);
 
         Optional<User> currentOpt = SecurityUtils.getCurrentUser(userRepository);
         if (currentOpt.isEmpty()) {
@@ -391,22 +402,7 @@ public class AppointmentController {
         
         appointment.setUpdatedAt(java.time.OffsetDateTime.now());
         Appointment saved = appointmentRepository.saveAndFlush(appointment);
-        
-        // Если статус изменился на terminal (completed, cancelled, no_show) - удаляем из очереди
-        if (statusChanged && isTerminalStatus(newStatus) && !isTerminalStatus(oldStatus)) {
-            Long doctorId = saved.getDoctor() != null ? saved.getDoctor().getId() : null;
-            if (saved.getPatient() != null && doctorId != null && saved.getStartTime() != null) {
-                LocalDate queueDay = saved.getStartTime().atZoneSameInstant(ZoneId.systemDefault()).toLocalDate();
-                logger.info("Удаление пациента {} из очереди к врачу {} (статус: {})",
-                    saved.getPatient().getId(), doctorId, newStatus);
-                redisQueueService.removeFromQueue(
-                    saved.getPatient().getId(),
-                    doctorId,
-                    queueDay
-                );
-                redisQueueService.recalculateQueueForDoctor(doctorId, queueDay);
-            }
-        }
+        redisQueueService.syncQueueForAppointmentChange(beforeQueueState, saved);
         
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
@@ -416,16 +412,6 @@ public class AppointmentController {
         return ResponseEntity.ok(response);
     }
     
-    /**
-     * Проверяет, является ли статус завершающим для очереди ({@code completed}, {@code cancelled}, {@code no_show}).
-     *
-     * @param status строковый код статуса
-     * @return {@code true}, если статус терминальный
-     */
-    private boolean isTerminalStatus(String status) {
-        return status != null && java.util.Set.of("completed", "cancelled", "no_show").contains(status);
-    }
-
     /**
      * Удаляет запись на приём по идентификатору.
      *
@@ -708,6 +694,18 @@ public class AppointmentController {
         }
     }
 
+    private static Appointment snapshotForQueue(Appointment appointment) {
+        if (appointment == null) {
+            return null;
+        }
+        Appointment snapshot = new Appointment();
+        snapshot.setDoctor(appointment.getDoctor());
+        snapshot.setPatient(appointment.getPatient());
+        snapshot.setStartTime(appointment.getStartTime());
+        snapshot.setStatus(appointment.getStatus());
+        return snapshot;
+    }
+
     /**
      * @param user пользователь из БД
      * @return {@code true}, если роль {@code admin}
@@ -762,6 +760,26 @@ public class AppointmentController {
         if (appointment.getPatient() != null && appointment.getPatient().getUser() != null
                 && appointment.getPatient().getUser().getId().equals(user.getId())) {
             return true;
+        }
+        return false;
+    }
+
+    /**
+     * Проверяет право просмотра списка приёмов пациента: админ, сам пациент или врач с общим приёмом.
+     */
+    private boolean canReadPatientAppointments(User user, Long patientId) {
+        if (isAdmin(user)) {
+            return true;
+        }
+        if (patientRepository.findByUserId(user.getId())
+                .map(p -> p.getId().equals(patientId))
+                .orElse(false)) {
+            return true;
+        }
+        if (isDoctor(user)) {
+            return doctorRepository.findByUserId(user.getId())
+                    .map(d -> appointmentRepository.existsByPatientIdAndDoctorId(patientId, d.getId()))
+                    .orElse(false);
         }
         return false;
     }

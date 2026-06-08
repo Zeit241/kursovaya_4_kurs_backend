@@ -49,14 +49,19 @@ public class QueueController {
     }
 
     /**
-     * Возвращает очередь к врачу из сервиса на основе БД.
+     * Возвращает актуальную live-очередь к врачу из Redis.
      *
      * @param doctorId идентификатор врача
+     * @param date     дата очереди (по умолчанию сегодня)
      * @return HTTP 200 и список {@link QueueEntryDto}
      */
     @GetMapping("/doctor/{doctorId}")
-    public ResponseEntity<List<QueueEntryDto>> getQueueByDoctor(@PathVariable Long doctorId) {
-        return ResponseEntity.ok(queueService.getQueueByDoctor(doctorId));
+    public ResponseEntity<List<QueueEntryDto>> getQueueByDoctor(
+            @PathVariable Long doctorId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        LocalDate queueDate = date != null ? date : LocalDate.now();
+        redisQueueService.recalculateQueueForDoctor(doctorId, queueDate);
+        return ResponseEntity.ok(redisQueueService.getQueueByDoctor(doctorId, queueDate));
     }
 
     /**

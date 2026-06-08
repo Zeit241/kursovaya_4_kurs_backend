@@ -11,7 +11,10 @@ import org.springframework.stereotype.Service;
 import pin122.kursovaya.dto.QueueEntryDto;
 import pin122.kursovaya.dto.WebSocketSessionData;
 import pin122.kursovaya.model.Appointment;
+import pin122.kursovaya.model.Patient;
+import pin122.kursovaya.model.User;
 import pin122.kursovaya.repository.AppointmentRepository;
+import pin122.kursovaya.repository.PatientRepository;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -37,10 +40,12 @@ public class RedisQueueService {
     private static final String SESSION_KEY_PREFIX = "ws:session:";
     private static final String ACTIVE_SESSIONS_KEY = "ws:sessions:active";
     private static final String PATIENT_SESSIONS_PREFIX = "patient:sessions:";
+    private static final Set<String> TERMINAL_STATUSES = Set.of("completed", "cancelled", "no_show");
     
     private final RedisTemplate<String, String> redisTemplate;
     private final DefaultRedisScript<Long> removeAndShiftScript;
     private final AppointmentRepository appointmentRepository;
+    private final PatientRepository patientRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final ObjectMapper objectMapper;
 
@@ -53,10 +58,12 @@ public class RedisQueueService {
     public RedisQueueService(RedisTemplate<String, String> redisTemplate,
                             DefaultRedisScript<Long> removeAndShiftScript,
                             AppointmentRepository appointmentRepository,
+                            PatientRepository patientRepository,
                             SimpMessagingTemplate messagingTemplate) {
         this.redisTemplate = redisTemplate;
         this.removeAndShiftScript = removeAndShiftScript;
         this.appointmentRepository = appointmentRepository;
+        this.patientRepository = patientRepository;
         this.messagingTemplate = messagingTemplate;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
@@ -220,9 +227,7 @@ public class RedisQueueService {
         // Получаем все appointments на сегодня для всех врачей
         List<Appointment> allTodayAppointments = appointmentRepository.findByStartTimeBetween(startOfDay, endOfDay)
                 .stream()
-                .filter(a -> a.getPatient() != null)
-                .filter(a -> !"completed".equals(a.getStatus()) && !"cancelled".equals(a.getStatus()))
-                .filter(a -> a.getStartTime().isAfter(now)) // Только будущие приемы
+                .filter(a -> isActiveQueueAppointment(a, today, now))
                 .collect(Collectors.toList());
         
         System.out.println("DEBUG Redis: Всего appointments на сегодня: " + allTodayAppointments.size());
@@ -377,16 +382,12 @@ public class RedisQueueService {
         if (queueDate == null) {
             queueDate = LocalDate.now();
         }
-        OffsetDateTime startOfDay = queueDate.atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
-        OffsetDateTime endOfDay = queueDate.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
         OffsetDateTime now = OffsetDateTime.now();
+        LocalDate targetDate = queueDate;
 
         List<Appointment> doctorAppointments = appointmentRepository.findByDoctorId(doctorId)
                 .stream()
-                .filter(a -> a.getPatient() != null)
-                .filter(a -> !a.getStartTime().isBefore(startOfDay) && a.getStartTime().isBefore(endOfDay))
-                .filter(a -> a.getStartTime().isAfter(now))
-                .filter(a -> !"completed".equals(a.getStatus()) && !"cancelled".equals(a.getStatus()))
+                .filter(a -> isActiveQueueAppointment(a, targetDate, now))
                 .sorted((a1, a2) -> a1.getStartTime().compareTo(a2.getStartTime()))
                 .collect(Collectors.toList());
 
@@ -402,6 +403,37 @@ public class RedisQueueService {
 
         System.out.println("DEBUG Redis: Очередь к врачу " + doctorId + " на " + queueDate + " пересчитана, "
                 + doctorAppointments.size() + " пациентов");
+    }
+
+    /**
+     * Пересчитывает очередь, к которой относится конкретный приём.
+     *
+     * @param appointment приём, чьи doctor/date могли повлиять на live-очередь
+     */
+    public void syncQueueForAppointment(Appointment appointment) {
+        QueueScope scope = queueScopeOf(appointment);
+        if (scope != null) {
+            recalculateQueueForDoctor(scope.doctorId(), scope.queueDate());
+        }
+    }
+
+    /**
+     * Пересчитывает старую и новую очереди после изменения doctor/date/patient/status приёма.
+     *
+     * @param before состояние до изменения
+     * @param after  состояние после сохранения
+     */
+    public void syncQueueForAppointmentChange(Appointment before, Appointment after) {
+        Set<QueueScope> scopes = new HashSet<>();
+        QueueScope beforeScope = queueScopeOf(before);
+        QueueScope afterScope = queueScopeOf(after);
+        if (beforeScope != null) {
+            scopes.add(beforeScope);
+        }
+        if (afterScope != null) {
+            scopes.add(afterScope);
+        }
+        scopes.forEach(scope -> recalculateQueueForDoctor(scope.doctorId(), scope.queueDate()));
     }
 
     // ==================== QUEUE OPERATIONS ====================
@@ -536,7 +568,7 @@ public class RedisQueueService {
 
                     Appointment appointment = findAppointment(patientId, doctorId, day);
 
-                    return new QueueEntryDto(
+                    QueueEntryDto dto = new QueueEntryDto(
                             null,
                             doctorId,
                             appointment != null ? appointment.getId() : null,
@@ -544,8 +576,35 @@ public class RedisQueueService {
                             position,
                             OffsetDateTime.now()
                     );
+                    dto.setPatientFullName(resolvePatientFullName(patientId));
+                    return dto;
                 })
                 .collect(Collectors.toList());
+    }
+
+    private String resolvePatientFullName(Long patientId) {
+        if (patientId == null) {
+            return null;
+        }
+        return patientRepository.findById(patientId)
+                .map(this::formatPatientFullName)
+                .orElse(null);
+    }
+
+    private String formatPatientFullName(Patient patient) {
+        if (patient == null || patient.getUser() == null) {
+            return null;
+        }
+        User user = patient.getUser();
+        String name = String.join(" ",
+                nullToEmpty(user.getLastName()),
+                nullToEmpty(user.getFirstName()),
+                nullToEmpty(user.getMiddleName())).trim();
+        return name.isEmpty() ? null : name;
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     /**
@@ -739,10 +798,10 @@ public class RedisQueueService {
      */
     public List<QueueEntryDto> getQueuesByPatient(Long patientId) {
         List<Appointment> appointments = appointmentRepository.findByPatientId(patientId);
+        OffsetDateTime now = OffsetDateTime.now();
 
         return appointments.stream()
-                .filter(a -> a.getDoctor() != null)
-                .filter(a -> !"completed".equals(a.getStatus()) && !"cancelled".equals(a.getStatus()))
+                .filter(a -> isActiveQueueAppointment(a, queueDateFromStart(a.getStartTime()), now))
                 .map(a -> {
                     Long doctorId = a.getDoctor().getId();
                     LocalDate qd = queueDateFromStart(a.getStartTime());
@@ -772,7 +831,7 @@ public class RedisQueueService {
                 if (a.getDoctor() == null) {
                     continue;
                 }
-                if ("completed".equals(a.getStatus()) || "cancelled".equals(a.getStatus())) {
+                if (isTerminalStatus(a.getStatus())) {
                     continue;
                 }
                 LocalDate d = queueDateFromStart(a.getStartTime());
@@ -824,6 +883,34 @@ public class RedisQueueService {
         return startTime.atZoneSameInstant(ZoneId.systemDefault()).toLocalDate();
     }
 
+    private boolean isActiveQueueAppointment(Appointment appointment, LocalDate queueDate, OffsetDateTime now) {
+        if (appointment == null
+                || appointment.getPatient() == null
+                || appointment.getDoctor() == null
+                || appointment.getStartTime() == null) {
+            return false;
+        }
+        if (isTerminalStatus(appointment.getStatus())) {
+            return false;
+        }
+        LocalDate appointmentDate = queueDateFromStart(appointment.getStartTime());
+        if (queueDate != null && !queueDate.equals(appointmentDate)) {
+            return false;
+        }
+        return appointment.getStartTime().isAfter(now);
+    }
+
+    private boolean isTerminalStatus(String status) {
+        return status != null && TERMINAL_STATUSES.contains(status);
+    }
+
+    private QueueScope queueScopeOf(Appointment appointment) {
+        if (appointment == null || appointment.getDoctor() == null || appointment.getStartTime() == null) {
+            return null;
+        }
+        return new QueueScope(appointment.getDoctor().getId(), queueDateFromStart(appointment.getStartTime()));
+    }
+
     /**
      * Парсит {@code patient:123} в Long.
      *
@@ -860,10 +947,14 @@ public class RedisQueueService {
                 .findByPatientId(patientId)
                 .stream()
                 .filter(a -> a.getDoctor() != null && doctorId.equals(a.getDoctor().getId()))
+                .filter(a -> a.getStartTime() != null)
                 .filter(a -> !a.getStartTime().isBefore(startOfDay) && a.getStartTime().isBefore(endOfDay))
-                .filter(a -> !"completed".equals(a.getStatus()) && !"cancelled".equals(a.getStatus()))
+                .filter(a -> !isTerminalStatus(a.getStatus()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private record QueueScope(Long doctorId, LocalDate queueDate) {
     }
 
     // ==================== DTO CLASSES ====================

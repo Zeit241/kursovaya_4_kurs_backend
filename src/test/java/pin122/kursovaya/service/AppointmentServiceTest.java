@@ -95,6 +95,7 @@ class AppointmentServiceTest {
         testAppointment.setSource("online");
         testAppointment.setCreatedAt(OffsetDateTime.now());
         testAppointment.setUpdatedAt(OffsetDateTime.now());
+
     }
 
     @Test
@@ -154,6 +155,7 @@ class AppointmentServiceTest {
         assertEquals("scheduled", result.get().getStatus());
         assertNotNull(result.get().getPatientId());
         verify(appointmentRepository).save(any(Appointment.class));
+        verify(redisQueueService).syncQueueForAppointmentChange(isNull(), same(testAppointment));
     }
 
     @Test
@@ -225,7 +227,7 @@ class AppointmentServiceTest {
     void getAppointmentsByDoctorAndDate_returnsFilteredList() {
         LocalDate date = LocalDate.now().plusDays(1);
 
-        when(appointmentRepository.findByDoctorIdAndDate(eq(1L), any(OffsetDateTime.class), any(OffsetDateTime.class)))
+        when(appointmentRepository.findByDoctorIdAndDateWithDetails(eq(1L), any(OffsetDateTime.class), any(OffsetDateTime.class)))
                 .thenReturn(List.of(testAppointment));
 
         List<AppointmentDto> result = appointmentService.getAppointmentsByDoctorAndDate(1L, date);
@@ -266,8 +268,8 @@ class AppointmentServiceTest {
     void getAvailableAppointments_withoutServiceId_returnsAllSlots() {
         LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(1);
 
-        when(appointmentRepository.findByDoctorIdAndDateFetchingService(
-                eq(1L), any(OffsetDateTime.class), any(OffsetDateTime.class)))
+        when(appointmentRepository.findBookableSlotsByDoctorAndDate(
+                eq(1L), any(OffsetDateTime.class), any(OffsetDateTime.class), any(OffsetDateTime.class)))
                 .thenReturn(List.of(testAppointment));
 
         List<AppointmentDto> result = appointmentService.getAvailableAppointments(1L, date);
@@ -285,8 +287,8 @@ class AppointmentServiceTest {
         service.setName("Консультация");
         testAppointment.setService(service);
 
-        when(appointmentRepository.findByDoctorIdAndDateFetchingService(
-                eq(1L), any(OffsetDateTime.class), any(OffsetDateTime.class)))
+        when(appointmentRepository.findBookableSlotsByDoctorAndDate(
+                eq(1L), any(OffsetDateTime.class), any(OffsetDateTime.class), any(OffsetDateTime.class)))
                 .thenReturn(List.of(testAppointment));
 
         List<AppointmentDto> result = appointmentService.getAvailableAppointments(1L, date, 5L);
@@ -301,8 +303,8 @@ class AppointmentServiceTest {
         LocalDate date = LocalDate.now(ZoneOffset.UTC).plusDays(1);
         testAppointment.setService(null);
 
-        when(appointmentRepository.findByDoctorIdAndDateFetchingService(
-                eq(1L), any(OffsetDateTime.class), any(OffsetDateTime.class)))
+        when(appointmentRepository.findBookableSlotsByDoctorAndDate(
+                eq(1L), any(OffsetDateTime.class), any(OffsetDateTime.class), any(OffsetDateTime.class)))
                 .thenReturn(List.of(testAppointment));
 
         List<AppointmentDto> result = appointmentService.getAvailableAppointments(1L, date, 5L);
@@ -319,8 +321,8 @@ class AppointmentServiceTest {
         otherService.setId(99L);
         testAppointment.setService(otherService);
 
-        when(appointmentRepository.findByDoctorIdAndDateFetchingService(
-                eq(1L), any(OffsetDateTime.class), any(OffsetDateTime.class)))
+        when(appointmentRepository.findBookableSlotsByDoctorAndDate(
+                eq(1L), any(OffsetDateTime.class), any(OffsetDateTime.class), any(OffsetDateTime.class)))
                 .thenReturn(List.of(testAppointment));
 
         List<AppointmentDto> result = appointmentService.getAvailableAppointments(1L, date, 5L);
@@ -430,8 +432,7 @@ class AppointmentServiceTest {
 
         assertTrue(result.isPresent());
         assertEquals("completed", result.get().getStatus());
-        verify(redisQueueService).removeFromQueue(1L, 1L, queueDay);
-        verify(redisQueueService).recalculateQueueForDoctor(1L, queueDay);
+        verify(redisQueueService).syncQueueForAppointmentChange(any(Appointment.class), same(testAppointment));
     }
 
     @Test
@@ -448,8 +449,7 @@ class AppointmentServiceTest {
 
         assertTrue(result.isPresent());
         assertEquals("no_show", result.get().getStatus());
-        verify(redisQueueService).removeFromQueue(1L, 1L, queueDay);
-        verify(redisQueueService).recalculateQueueForDoctor(1L, queueDay);
+        verify(redisQueueService).syncQueueForAppointmentChange(any(Appointment.class), same(testAppointment));
     }
 
     @Test
@@ -465,7 +465,7 @@ class AppointmentServiceTest {
         assertTrue(result.isPresent());
         assertEquals("scheduled", result.get().getStatus());
         verify(appointmentRepository, never()).save(any(Appointment.class));
-        verify(redisQueueService, never()).removeFromQueue(anyLong(), anyLong(), any(LocalDate.class));
+        verify(redisQueueService, never()).syncQueueForAppointmentChange(any(), any());
     }
 
     @Test
@@ -479,8 +479,8 @@ class AppointmentServiceTest {
     }
 
     @Test
-    @DisplayName("Обновление статуса — переход между терминальными статусами без Redis")
-    void updateAppointmentStatus_terminalToTerminal_skipsRedis() {
+    @DisplayName("Обновление статуса — переход между терминальными статусами синхронизирует очередь")
+    void updateAppointmentStatus_terminalToTerminal_syncsQueue() {
         testAppointment.setPatient(testPatient);
         testAppointment.setStatus("completed");
 
@@ -491,8 +491,7 @@ class AppointmentServiceTest {
 
         assertTrue(result.isPresent());
         assertEquals("cancelled", result.get().getStatus());
-        verify(redisQueueService, never()).removeFromQueue(anyLong(), anyLong(), any(LocalDate.class));
-        verify(redisQueueService, never()).recalculateQueueForDoctor(anyLong(), any(LocalDate.class));
+        verify(redisQueueService).syncQueueForAppointmentChange(any(Appointment.class), same(testAppointment));
     }
 
     @Test
@@ -510,8 +509,7 @@ class AppointmentServiceTest {
         assertTrue(result.isPresent());
         assertEquals("cancelled", result.get().getStatus());
         assertEquals("Пациент не может прийти", result.get().getCancelReason());
-        verify(redisQueueService).removeFromQueue(1L, 1L, queueDay);
-        verify(redisQueueService).recalculateQueueForDoctor(1L, queueDay);
+        verify(redisQueueService).syncQueueForAppointmentChange(any(Appointment.class), same(testAppointment));
     }
 
     @Test
@@ -522,7 +520,7 @@ class AppointmentServiceTest {
         Optional<AppointmentDto> result = appointmentService.cancelAppointment(999L, "Причина");
 
         assertFalse(result.isPresent());
-        verify(redisQueueService, never()).removeFromQueue(anyLong(), anyLong(), any(LocalDate.class));
+        verify(redisQueueService, never()).syncQueueForAppointmentChange(any(), any());
     }
 
     @Test
@@ -552,6 +550,7 @@ class AppointmentServiceTest {
         assertEquals(1L, result.getId());
         assertEquals("available", result.getStatus());
         verify(appointmentRepository).save(testAppointment);
+        verify(redisQueueService).syncQueueForAppointmentChange(any(), same(testAppointment));
     }
 
     @Test

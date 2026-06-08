@@ -14,6 +14,8 @@ public class BookAppointmentRequest {
     private Long appointmentId;
     @NotNull
     private Long userId;
+    /** Опционально: явный id пациента (запись админом); иначе поиск по userId */
+    private Long patientId;
     /** Опционально: если у слота нет услуги — проставить; если есть — должен совпадать */
     private Long serviceId;
 }

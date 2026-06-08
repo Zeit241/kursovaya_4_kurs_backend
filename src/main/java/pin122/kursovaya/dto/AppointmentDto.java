@@ -94,6 +94,8 @@ public class AppointmentDto {
         private String firstName;
         private String lastName;
         private String middleName;
+        /** ФИО одной строкой для отображения в UI */
+        private String fullName;
         private String phone;
         private String email;
         private String birthDate;
@@ -129,6 +131,8 @@ public class AppointmentDto {
         private Long id;
         private String code;
         private String name;
+        /** Название для UI: {@code name} или понятный fallback по коду */
+        private String displayName;
         
         public RoomInfo() {}
     }
