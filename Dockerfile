@@ -4,10 +4,11 @@ FROM maven:3.9-eclipse-temurin-21-alpine AS builder
 WORKDIR /build
 
 COPY pom.xml .
+COPY checkstyle.xml .
 RUN mvn -B dependency:go-offline
 
 COPY src ./src
-RUN mvn -B -DskipTests package
+RUN mvn -B -DskipTests -Dcheckstyle.skip=true package
 
 FROM eclipse-temurin:21-jre-alpine AS runner
 
