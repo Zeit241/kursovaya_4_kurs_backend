@@ -66,6 +66,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/users/create").permitAll()
                         .requestMatchers("/api/test/**").permitAll() // Тестовые эндпоинты без авторизации
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/queue-websocket/**").permitAll() // WebSocket endpoint
                         .anyRequest().authenticated()
