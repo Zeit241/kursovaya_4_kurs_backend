@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pin122.kursovaya.dto.AppointmentDto;
 import pin122.kursovaya.dto.BookAppointmentResult;
+import pin122.kursovaya.dto.DoctorScheduleSummaryDto;
+import pin122.kursovaya.model.Doctor;
 import pin122.kursovaya.model.Appointment;
 import pin122.kursovaya.model.Patient;
 import pin122.kursovaya.repository.AppointmentRepository;
@@ -18,9 +20,13 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -157,6 +163,106 @@ public class AppointmentService {
         return appointmentRepository.findByDoctorIdAndDateWithDetails(doctorId, startOfDay, startOfNextDay).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Приёмы врача за период с опциональной фильтрацией по статусам.
+     */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public List<AppointmentDto> getAppointmentsByDoctorAndDateRange(
+            Long doctorId,
+            LocalDate startDate,
+            LocalDate endDate,
+            List<String> statuses) {
+        OffsetDateTime start = startDate.atStartOfDay().atOffset(ZoneOffset.UTC);
+        OffsetDateTime end = endDate.plusDays(1).atStartOfDay().atOffset(ZoneOffset.UTC);
+        Set<String> statusFilter = normalizeStatusFilter(statuses);
+
+        return appointmentRepository.findByDoctorIdAndDateRangeWithDetails(doctorId, start, end).stream()
+                .filter(a -> statusFilter.isEmpty() || matchesDoctorStatusFilter(a.getStatus(), statusFilter))
+                .map(this::mapToDto)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Персональная панель расписания врача: сводка по статусам и список приёмов.
+     */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public DoctorScheduleSummaryDto getDoctorSchedulePanel(
+            Doctor doctor,
+            LocalDate startDate,
+            LocalDate endDate,
+            String viewMode,
+            List<String> statuses) {
+        List<AppointmentDto> appointments = getAppointmentsByDoctorAndDateRange(
+                doctor.getId(), startDate, endDate, statuses);
+
+        int scheduled = 0;
+        int inProgress = 0;
+        int completed = 0;
+        int cancelled = 0;
+
+        for (AppointmentDto a : appointments) {
+            if (a.getPatientId() == null) {
+                continue;
+            }
+            String status = a.getStatus();
+            if (status == null) {
+                continue;
+            }
+            switch (status) {
+                case "scheduled":
+                case "confirmed":
+                    scheduled++;
+                    break;
+                case "in_progress":
+                    inProgress++;
+                    break;
+                case "completed":
+                    completed++;
+                    break;
+                case "cancelled":
+                    cancelled++;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        DoctorScheduleSummaryDto summary = new DoctorScheduleSummaryDto();
+        summary.setDoctorId(doctor.getId());
+        summary.setDoctorDisplayName(doctor.getDisplayName());
+        summary.setStartDate(startDate);
+        summary.setEndDate(endDate);
+        summary.setViewMode(viewMode);
+        summary.setScheduledCount(scheduled);
+        summary.setInProgressCount(inProgress);
+        summary.setCompletedCount(completed);
+        summary.setCancelledCount(cancelled);
+        summary.setTotalCount(scheduled + inProgress + completed + cancelled);
+        summary.setAppointments(appointments);
+        return summary;
+    }
+
+    private static Set<String> normalizeStatusFilter(List<String> statuses) {
+        if (statuses == null || statuses.isEmpty()) {
+            return Set.of();
+        }
+        return statuses.stream()
+                .flatMap(s -> Arrays.stream(s.split(",")))
+                .map(s -> s.trim().toLowerCase(Locale.ROOT))
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+    }
+
+    private static boolean matchesDoctorStatusFilter(String status, Set<String> filter) {
+        if (status == null) {
+            return false;
+        }
+        if (filter.contains(status)) {
+            return true;
+        }
+        return filter.contains("scheduled") && "confirmed".equals(status);
     }
 
     /**

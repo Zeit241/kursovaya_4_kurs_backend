@@ -9,6 +9,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import pin122.kursovaya.dto.AppointmentDto;
 import pin122.kursovaya.dto.BookAppointmentRequest;
+import pin122.kursovaya.dto.DoctorScheduleSummaryDto;
 import pin122.kursovaya.dto.QueueEntryDto;
 import pin122.kursovaya.model.Appointment;
 import pin122.kursovaya.model.Doctor;
@@ -30,9 +31,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -128,14 +131,26 @@ public class AppointmentController {
     }
 
     /**
-     * Возвращает приёмы текущего авторизованного врача (по JWT); опционально за указанный день.
+     * Возвращает приёмы текущего авторизованного врача (по JWT).
+     * Поддерживает режим дня ({@code date}) или периода ({@code startDate}, {@code endDate}, {@code view=week}),
+     * фильтрацию по статусам ({@code status} — одно или несколько через запятую).
      *
-     * @param date календарная дата или {@code null} для всех записей врача
-     * @return HTTP 200 и список DTO; HTTP 401/403/404 при отсутствии авторизации, не-врача или профиля врача
+     * @param date       календарная дата (день)
+     * @param startDate  начало периода (неделя)
+     * @param endDate    конец периода (неделя)
+     * @param view       {@code day} или {@code week}
+     * @param status     фильтр статусов: scheduled, in_progress, completed, cancelled (через запятую)
+     * @param summary    если {@code true}, возвращает {@link DoctorScheduleSummaryDto} со сводкой
+     * @return HTTP 200; HTTP 401/403/404 при ошибках доступа
      */
     @GetMapping("/my/doctor")
     public ResponseEntity<?> getMyDoctorAppointments(
-            @RequestParam(required = false) LocalDate date) {
+            @RequestParam(required = false) LocalDate date,
+            @RequestParam(required = false) LocalDate startDate,
+            @RequestParam(required = false) LocalDate endDate,
+            @RequestParam(required = false, defaultValue = "day") String view,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false, defaultValue = "false") boolean summary) {
         Optional<User> userOpt = SecurityUtils.getCurrentUser(userRepository);
         if (userOpt.isEmpty()) {
             return ResponseEntity.status(401).body(Map.of("error", "Не авторизован"));
@@ -148,11 +163,49 @@ public class AppointmentController {
         if (doctorOpt.isEmpty()) {
             return ResponseEntity.status(404).body(Map.of("error", "Профиль врача не найден"));
         }
-        Long doctorId = doctorOpt.get().getId();
-        if (date != null) {
-            return ResponseEntity.ok(appointmentService.getAppointmentsByDoctorAndDate(doctorId, date));
+        Doctor doctor = doctorOpt.get();
+        Long doctorId = doctor.getId();
+
+        LocalDate periodStart;
+        LocalDate periodEnd;
+        String viewMode = view != null ? view.trim().toLowerCase() : "day";
+
+        if ("week".equals(viewMode)) {
+            LocalDate anchor = date != null ? date : (startDate != null ? startDate : LocalDate.now());
+            periodStart = anchor.with(java.time.DayOfWeek.MONDAY);
+            periodEnd = periodStart.plusDays(6);
+        } else if (startDate != null && endDate != null) {
+            periodStart = startDate;
+            periodEnd = endDate;
+            if (periodStart.isAfter(periodEnd)) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Дата начала не может быть позже даты окончания"));
+            }
+            if (ChronoUnit.DAYS.between(periodStart, periodEnd) > 31) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Период не может превышать 31 день"));
+            }
+            viewMode = periodStart.equals(periodEnd) ? "day" : "range";
+        } else if (date != null) {
+            periodStart = date;
+            periodEnd = date;
+        } else {
+            return ResponseEntity.ok(appointmentService.getAppointmentsByDoctor(doctorId));
         }
-        return ResponseEntity.ok(appointmentService.getAppointmentsByDoctor(doctorId));
+
+        List<String> statuses = parseStatusFilter(status);
+
+        if (summary) {
+            DoctorScheduleSummaryDto panel = appointmentService.getDoctorSchedulePanel(
+                    doctor, periodStart, periodEnd, viewMode, statuses);
+            return ResponseEntity.ok(panel);
+        }
+
+        if (periodStart.equals(periodEnd)) {
+            List<AppointmentDto> dayList = appointmentService.getAppointmentsByDoctorAndDateRange(
+                    doctorId, periodStart, periodEnd, statuses);
+            return ResponseEntity.ok(dayList);
+        }
+        return ResponseEntity.ok(appointmentService.getAppointmentsByDoctorAndDateRange(
+                doctorId, periodStart, periodEnd, statuses));
     }
 
     /**
@@ -692,6 +745,16 @@ public class AppointmentController {
             logger.error("Ошибка при генерации PDF для записи {}: {}", id, e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    private static List<String> parseStatusFilter(String status) {
+        if (status == null || status.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(status.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
     }
 
     private static Appointment snapshotForQueue(Appointment appointment) {

@@ -319,7 +319,7 @@ public class RedisQueueService {
                 .filter(scope -> scope != null)
                 .collect(Collectors.toSet());
 
-        scopes.forEach(scope -> recalculateQueueForDoctor(scope.doctorId(), scope.queueDate()));
+        scopes.forEach(scope -> recalculateQueueForDoctor(scope.doctorId(), scope.queueDate(), false));
         return getQueuesByPatient(patientId, effectiveMode);
     }
 
@@ -419,6 +419,10 @@ public class RedisQueueService {
      * @param queueDate календарный день очереди; {@code null} трактуется как сегодня
      */
     public void recalculateQueueForDoctor(Long doctorId, LocalDate queueDate) {
+        recalculateQueueForDoctor(doctorId, queueDate, true);
+    }
+
+    private void recalculateQueueForDoctor(Long doctorId, LocalDate queueDate, boolean notify) {
         if (queueDate == null) {
             queueDate = LocalDate.now();
         }
@@ -439,7 +443,9 @@ public class RedisQueueService {
             position++;
         }
 
-        notifyQueueUpdated(doctorId, queueDate);
+        if (notify) {
+            notifyQueueUpdated(doctorId, queueDate);
+        }
 
         System.out.println("DEBUG Redis: Очередь к врачу " + doctorId + " на " + queueDate + " пересчитана, "
                 + doctorAppointments.size() + " пациентов");
@@ -861,7 +867,7 @@ public class RedisQueueService {
                     LocalDate qd = queueDateFromStart(a.getStartTime());
                     Integer position = getPatientPosition(patientId, doctorId, qd);
                     if (position == null) {
-                        recalculateQueueForDoctor(doctorId, qd);
+                        recalculateQueueForDoctor(doctorId, qd, false);
                         position = getPatientPosition(patientId, doctorId, qd);
                     }
                     if (position == null) {

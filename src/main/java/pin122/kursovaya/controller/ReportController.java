@@ -8,9 +8,13 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import pin122.kursovaya.dto.AttendanceDynamicsDto;
 import pin122.kursovaya.dto.DailyReportDto;
+import pin122.kursovaya.dto.DoctorWorkloadItemDto;
+import pin122.kursovaya.dto.FinancialStatsDto;
 import pin122.kursovaya.model.User;
 import pin122.kursovaya.repository.UserRepository;
+import pin122.kursovaya.service.AnalyticsService;
 import pin122.kursovaya.service.ReportExportService;
 import pin122.kursovaya.service.ReportService;
 
@@ -19,6 +23,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -38,18 +43,22 @@ public class ReportController {
 
     private final ReportService reportService;
     private final ReportExportService reportExportService;
+    private final AnalyticsService analyticsService;
     private final UserRepository userRepository;
 
     /**
      * @param reportService         агрегация данных отчётов
      * @param reportExportService   генерация файлов Excel и PDF
+     * @param analyticsService      аналитика для админ-панели
      * @param userRepository        проверка роли администратора по email из {@link Authentication}
      */
-    public ReportController(ReportService reportService, 
+    public ReportController(ReportService reportService,
                            ReportExportService reportExportService,
+                           AnalyticsService analyticsService,
                            UserRepository userRepository) {
         this.reportService = reportService;
         this.reportExportService = reportExportService;
+        this.analyticsService = analyticsService;
         this.userRepository = userRepository;
     }
 
@@ -168,6 +177,62 @@ public class ReportController {
         
         DailyReportDto report = reportService.getAppointmentsByDoctorAndDateRange(doctorId, startDate, endDate);
         return ResponseEntity.ok(report);
+    }
+
+    // ==================== АНАЛИТИКА (АДМИН) ====================
+
+    /**
+     * Загрузка врачей за период: счётчики по статусам scheduled, in_progress, completed, cancelled.
+     */
+    @GetMapping("/analytics/doctor-workload")
+    public ResponseEntity<?> getDoctorWorkload(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            Authentication authentication) {
+        if (!isAdmin(authentication)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Доступ запрещён. Требуется роль администратора."));
+        }
+        if (startDate.isAfter(endDate)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Дата начала не может быть позже даты окончания."));
+        }
+        List<DoctorWorkloadItemDto> workload = analyticsService.getDoctorWorkload(startDate, endDate);
+        return ResponseEntity.ok(workload);
+    }
+
+    /**
+     * Финансовая статистика: выручка по завершённым приёмам с услугой.
+     */
+    @GetMapping("/analytics/financial")
+    public ResponseEntity<?> getFinancialStats(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            Authentication authentication) {
+        if (!isAdmin(authentication)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Доступ запрещён. Требуется роль администратора."));
+        }
+        if (startDate.isAfter(endDate)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Дата начала не может быть позже даты окончания."));
+        }
+        FinancialStatsDto stats = analyticsService.getFinancialStats(startDate, endDate);
+        return ResponseEntity.ok(stats);
+    }
+
+    /**
+     * Динамика посещаемости по дням за период.
+     */
+    @GetMapping("/analytics/attendance-dynamics")
+    public ResponseEntity<?> getAttendanceDynamics(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+            Authentication authentication) {
+        if (!isAdmin(authentication)) {
+            return ResponseEntity.status(403).body(Map.of("error", "Доступ запрещён. Требуется роль администратора."));
+        }
+        if (startDate.isAfter(endDate)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Дата начала не может быть позже даты окончания."));
+        }
+        AttendanceDynamicsDto dynamics = analyticsService.getAttendanceDynamics(startDate, endDate);
+        return ResponseEntity.ok(dynamics);
     }
 
     // ==================== ЭКСПОРТ В ФАЙЛЫ ====================

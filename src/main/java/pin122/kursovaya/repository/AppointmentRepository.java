@@ -118,6 +118,22 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
                                                         @Param("startOfNextDay") OffsetDateTime startOfNextDay);
 
     /**
+     * Приёмы врача за период с подгрузкой пациента, кабинета, услуги и диагноза.
+     */
+    @Query("SELECT DISTINCT a FROM Appointment a " +
+           "LEFT JOIN FETCH a.patient p " +
+           "LEFT JOIN FETCH p.user " +
+           "LEFT JOIN FETCH a.room " +
+           "LEFT JOIN FETCH a.service " +
+           "LEFT JOIN FETCH a.diagnosis " +
+           "WHERE a.doctor.id = :doctorId " +
+           "AND a.startTime >= :start AND a.startTime < :end " +
+           "ORDER BY a.startTime")
+    List<Appointment> findByDoctorIdAndDateRangeWithDetails(@Param("doctorId") Long doctorId,
+                                                            @Param("start") OffsetDateTime start,
+                                                            @Param("end") OffsetDateTime end);
+
+    /**
      * Возвращает приёмы врача за сутки с подгрузкой услуги, чтобы избежать проблемы N+1 при отображении записи.
      * <p>
      * JPQL-запрос: {@code DISTINCT} и {@code LEFT JOIN FETCH a.service}, фильтр по врачу и полуинтервалу {@code startTime}.
@@ -380,6 +396,81 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
     List<Object[]> countByStatusAndDoctorAndDateRange(@Param("doctorId") Long doctorId,
                                                        @Param("startDate") OffsetDateTime startDate,
                                                        @Param("endDate") OffsetDateTime endDate);
+
+    /**
+     * Загрузка врачей: группировка приёмов с пациентом по врачу и статусу за период.
+     *
+     * @return [doctorId, displayName, status, count]
+     */
+    @Query("SELECT d.id, d.displayName, a.status, COUNT(a) FROM Appointment a " +
+           "JOIN a.doctor d " +
+           "WHERE a.startTime >= :startDate AND a.startTime < :endDate " +
+           "AND a.patient IS NOT NULL " +
+           "GROUP BY d.id, d.displayName, a.status")
+    List<Object[]> countByDoctorAndStatusAndDateRange(@Param("startDate") OffsetDateTime startDate,
+                                                      @Param("endDate") OffsetDateTime endDate);
+
+    /**
+     * Сумма цен услуг завершённых приёмов за период.
+     */
+    @Query("SELECT COALESCE(SUM(s.price), 0) FROM Appointment a " +
+           "JOIN a.service s " +
+           "WHERE a.status = 'completed' " +
+           "AND a.startTime >= :startDate AND a.startTime < :endDate " +
+           "AND a.patient IS NOT NULL")
+    java.math.BigDecimal sumCompletedServiceRevenue(@Param("startDate") OffsetDateTime startDate,
+                                                    @Param("endDate") OffsetDateTime endDate);
+
+    /**
+     * Число завершённых приёмов с услугой за период.
+     */
+    @Query("SELECT COUNT(a) FROM Appointment a " +
+           "WHERE a.status = 'completed' " +
+           "AND a.service IS NOT NULL " +
+           "AND a.startTime >= :startDate AND a.startTime < :endDate " +
+           "AND a.patient IS NOT NULL")
+    long countCompletedWithService(@Param("startDate") OffsetDateTime startDate,
+                                   @Param("endDate") OffsetDateTime endDate);
+
+    /**
+     * Дневная выручка по завершённым приёмам.
+     *
+     * @return [date (java.sql.Date), revenue, count]
+     */
+    @Query(value = """
+            SELECT CAST((a.start_time AT TIME ZONE 'UTC') AS date) AS day,
+                   COALESCE(SUM(s.price), 0) AS revenue,
+                   COUNT(a.id) AS cnt
+            FROM appointments a
+            JOIN services s ON s.id = a.service_id
+            WHERE a.status = 'completed'
+              AND a.patient_id IS NOT NULL
+              AND a.start_time >= :startDate
+              AND a.start_time < :endDate
+            GROUP BY day
+            ORDER BY day
+            """, nativeQuery = true)
+    List<Object[]> sumCompletedRevenueByDay(@Param("startDate") OffsetDateTime startDate,
+                                            @Param("endDate") OffsetDateTime endDate);
+
+    /**
+     * Дневная динамика посещаемости: дата и статус.
+     *
+     * @return [date (java.sql.Date), status, count]
+     */
+    @Query(value = """
+            SELECT CAST((a.start_time AT TIME ZONE 'UTC') AS date) AS day,
+                   a.status,
+                   COUNT(a.id) AS cnt
+            FROM appointments a
+            WHERE a.patient_id IS NOT NULL
+              AND a.start_time >= :startDate
+              AND a.start_time < :endDate
+            GROUP BY day, a.status
+            ORDER BY day
+            """, nativeQuery = true)
+    List<Object[]> countByDayAndStatus(@Param("startDate") OffsetDateTime startDate,
+                                       @Param("endDate") OffsetDateTime endDate);
 
     /**
      * Возвращает запланированные или подтверждённые приёмы в полуинтервале времени с подгрузкой связей (напоминания).
