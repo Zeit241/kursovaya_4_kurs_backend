@@ -109,8 +109,11 @@ public class WebSocketEventListener {
             System.out.println("DEBUG WebSocket: Создан Redis session: " + redisSessionId + 
                     " для пациента: " + patient.getId());
             
-            // Формируем очередь на текущий день
-            List<QueueEntryDto> queueEntries = redisQueueService.buildQueueForToday(patient.getId());
+            // Формируем все активные очереди пациента, чтобы будущие записи были доступны сразу после подключения.
+            List<QueueEntryDto> queueEntries = redisQueueService.buildQueuesForPatient(
+                    patient.getId(),
+                    RedisQueueService.QueueScopeMode.ALL
+            );
             
             // Собираем ID appointments для сохранения в сессии
             List<Long> appointmentIds = queueEntries.stream()
@@ -136,8 +139,8 @@ public class WebSocketEventListener {
                 new RedisQueueService.QueueInitResponse(
                     true,
                     queueEntries.isEmpty() 
-                        ? "Нет активных записей на сегодня" 
-                        : "Очередь на сегодня успешно построена",
+                        ? "Нет активных записей" 
+                        : "Очередь успешно построена",
                     queueEntries
                 )
             );

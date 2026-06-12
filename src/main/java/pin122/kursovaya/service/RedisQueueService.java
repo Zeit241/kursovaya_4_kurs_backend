@@ -861,6 +861,10 @@ public class RedisQueueService {
                     LocalDate qd = queueDateFromStart(a.getStartTime());
                     Integer position = getPatientPosition(patientId, doctorId, qd);
                     if (position == null) {
+                        recalculateQueueForDoctor(doctorId, qd);
+                        position = getPatientPosition(patientId, doctorId, qd);
+                    }
+                    if (position == null) {
                         return null;
                     }
                     return getQueueByDoctor(doctorId, qd).stream()
