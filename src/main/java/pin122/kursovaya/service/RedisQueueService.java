@@ -41,6 +41,22 @@ public class RedisQueueService {
     private static final String ACTIVE_SESSIONS_KEY = "ws:sessions:active";
     private static final String PATIENT_SESSIONS_PREFIX = "patient:sessions:";
     private static final Set<String> TERMINAL_STATUSES = Set.of("completed", "cancelled", "no_show");
+
+    public enum QueueScopeMode {
+        TODAY,
+        ALL;
+
+        public static QueueScopeMode from(String value) {
+            if (value == null || value.isBlank()) {
+                return TODAY;
+            }
+            try {
+                return QueueScopeMode.valueOf(value.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return TODAY;
+            }
+        }
+    }
     
     private final RedisTemplate<String, String> redisTemplate;
     private final DefaultRedisScript<Long> removeAndShiftScript;
@@ -281,6 +297,30 @@ public class RedisQueueService {
         }
         
         return patientQueueEntries;
+    }
+
+    /**
+     * Пересобирает Redis-очереди пациента в выбранном режиме и возвращает актуальные позиции.
+     *
+     * @param patientId идентификатор пациента
+     * @param mode      {@code TODAY} — только сегодня, {@code ALL} — все будущие активные приёмы
+     * @return список позиций пациента
+     */
+    public List<QueueEntryDto> buildQueuesForPatient(Long patientId, QueueScopeMode mode) {
+        QueueScopeMode effectiveMode = mode == null ? QueueScopeMode.TODAY : mode;
+        if (effectiveMode == QueueScopeMode.TODAY) {
+            return buildQueueForToday(patientId);
+        }
+
+        Set<QueueScope> scopes = appointmentRepository.findByPatientId(patientId)
+                .stream()
+                .filter(a -> isActiveQueueAppointment(a, null, OffsetDateTime.now()))
+                .map(this::queueScopeOf)
+                .filter(scope -> scope != null)
+                .collect(Collectors.toSet());
+
+        scopes.forEach(scope -> recalculateQueueForDoctor(scope.doctorId(), scope.queueDate()));
+        return getQueuesByPatient(patientId, effectiveMode);
     }
 
     /**
@@ -797,11 +837,25 @@ public class RedisQueueService {
      * @return непустые {@link QueueEntryDto} для каждой релевантной очереди
      */
     public List<QueueEntryDto> getQueuesByPatient(Long patientId) {
+        return getQueuesByPatient(patientId, QueueScopeMode.ALL);
+    }
+
+    /**
+     * По активным приёмам пациента собирает его позиции в очередях с учётом режима фильтрации.
+     *
+     * @param patientId идентификатор пациента
+     * @param mode      {@code TODAY} — только сегодня, {@code ALL} — все будущие активные приёмы
+     * @return непустые {@link QueueEntryDto} для каждой релевантной очереди
+     */
+    public List<QueueEntryDto> getQueuesByPatient(Long patientId, QueueScopeMode mode) {
         List<Appointment> appointments = appointmentRepository.findByPatientId(patientId);
         OffsetDateTime now = OffsetDateTime.now();
+        LocalDate today = LocalDate.now();
+        QueueScopeMode effectiveMode = mode == null ? QueueScopeMode.ALL : mode;
 
         return appointments.stream()
                 .filter(a -> isActiveQueueAppointment(a, queueDateFromStart(a.getStartTime()), now))
+                .filter(a -> effectiveMode == QueueScopeMode.ALL || today.equals(queueDateFromStart(a.getStartTime())))
                 .map(a -> {
                     Long doctorId = a.getDoctor().getId();
                     LocalDate qd = queueDateFromStart(a.getStartTime());

@@ -14,6 +14,7 @@ import pin122.kursovaya.repository.PatientRepository;
 import pin122.kursovaya.repository.UserRepository;
 import pin122.kursovaya.service.AppointmentService;
 import pin122.kursovaya.service.RedisQueueService;
+import pin122.kursovaya.service.RedisQueueService.QueueScopeMode;
 
 import java.util.List;
 import java.util.Optional;
@@ -67,7 +68,7 @@ public class QueueWebSocketController {
      * @param authentication контекст Spring Security с именем пользователя (email) или {@code null}
      */
     @MessageMapping("/queue/init")
-    public void initQueue(Authentication authentication) {
+    public void initQueue(@Payload(required = false) QueueScopeRequest request, Authentication authentication) {
         System.out.println("DEBUG WebSocket: initQueue вызван, authentication: " + (authentication != null ? authentication.getName() : "null"));
         try {
             if (authentication == null || authentication.getPrincipal() == null) {
@@ -105,8 +106,8 @@ public class QueueWebSocketController {
             }
 
             System.out.println("DEBUG WebSocket: Найден пациент с ID: " + patient.get().getId());
-            // Строим очередь на текущий день (только Redis)
-            List<QueueEntryDto> queueEntries = redisQueueService.buildQueueForToday(patient.get().getId());
+            QueueScopeMode mode = resolveScopeMode(request != null ? request.getScope() : null);
+            List<QueueEntryDto> queueEntries = redisQueueService.buildQueuesForPatient(patient.get().getId(), mode);
             System.out.println("DEBUG WebSocket: Построено записей в очереди: " + queueEntries.size());
 
             messagingTemplate.convertAndSendToUser(
@@ -114,8 +115,8 @@ public class QueueWebSocketController {
                 "/queue/user",
                 new QueueInitResponse(true, 
                     queueEntries.isEmpty() 
-                        ? "Нет активных записей на сегодня" 
-                        : "Очередь на сегодня успешно построена",
+                        ? emptyQueueMessage(mode)
+                        : queueBuiltMessage(mode),
                     queueEntries)
             );
         } catch (Exception e) {
@@ -235,26 +236,13 @@ public class QueueWebSocketController {
                 return;
             }
 
-            Integer position = redisQueueService.getPatientPosition(
-                    patient.get().getId(),
-                    request.getDoctorId()
-            );
-
-            if (position == null) {
-                messagingTemplate.convertAndSendToUser(
-                    email,
-                    "/queue/user",
-                    new QueuePositionResponse(false, "Пользователь не находится в очереди к этому врачу", null)
-                );
-                return;
-            }
-
-            boolean isNext = redisQueueService.isPatientNextInQueue(patient.get().getId(), request.getDoctorId());
-            
-            // Получаем очередь для создания DTO
-            List<QueueEntryDto> queue = redisQueueService.getQueueByDoctor(request.getDoctorId());
+            QueueScopeMode mode = resolveScopeMode(request.getScope());
+            List<QueueEntryDto> queue = mode == QueueScopeMode.TODAY
+                    ? redisQueueService.getQueueByDoctor(request.getDoctorId(), java.time.LocalDate.now())
+                    : redisQueueService.buildQueuesForPatient(patient.get().getId(), QueueScopeMode.ALL);
             QueueEntryDto entry = queue.stream()
                     .filter(e -> patient.get().getId().equals(e.getPatientId()))
+                    .filter(e -> request.getDoctorId().equals(e.getDoctorId()))
                     .findFirst()
                     .orElse(null);
             
@@ -266,6 +254,10 @@ public class QueueWebSocketController {
                 );
                 return;
             }
+
+            boolean isNext = mode == QueueScopeMode.TODAY
+                    ? redisQueueService.isPatientNextInQueue(patient.get().getId(), request.getDoctorId(), java.time.LocalDate.now())
+                    : entry.getPosition() == 0;
 
             QueuePositionDto positionDto = new QueuePositionDto(
                     entry.getId(),
@@ -298,7 +290,7 @@ public class QueueWebSocketController {
      * @param authentication контекст безопасности с email пациента или {@code null}
      */
     @MessageMapping("/queue/my-queues")
-    public void getMyQueues(Authentication authentication) {
+    public void getMyQueues(@Payload(required = false) QueueScopeRequest request, Authentication authentication) {
         System.out.println("DEBUG WebSocket: getMyQueues вызван (возвращает существующие записи из БД)");
         try {
             if (authentication == null) {
@@ -333,7 +325,8 @@ public class QueueWebSocketController {
             }
 
             // Получаем все очереди для пациента
-            List<QueueEntryDto> queues = redisQueueService.getQueuesByPatient(patient.get().getId());
+            QueueScopeMode mode = resolveScopeMode(request != null ? request.getScope() : null);
+            List<QueueEntryDto> queues = redisQueueService.buildQueuesForPatient(patient.get().getId(), mode);
             messagingTemplate.convertAndSendToUser(
                 email,
                 "/queue/user",
@@ -347,6 +340,22 @@ public class QueueWebSocketController {
                 new QueueListResponse(false, "Ошибка: " + e.getMessage(), null)
             );
         }
+    }
+
+    private QueueScopeMode resolveScopeMode(String scope) {
+        return QueueScopeMode.from(scope);
+    }
+
+    private String emptyQueueMessage(QueueScopeMode mode) {
+        return mode == QueueScopeMode.ALL
+                ? "Нет активных записей"
+                : "Нет активных записей на сегодня";
+    }
+
+    private String queueBuiltMessage(QueueScopeMode mode) {
+        return mode == QueueScopeMode.ALL
+                ? "Очередь успешно построена"
+                : "Очередь на сегодня успешно построена";
     }
 
     /**
@@ -438,9 +447,22 @@ public class QueueWebSocketController {
      */
     public static class QueuePositionRequest {
         private Long doctorId;
+        private String scope;
 
         public Long getDoctorId() { return doctorId; }
         public void setDoctorId(Long doctorId) { this.doctorId = doctorId; }
+        public String getScope() { return scope; }
+        public void setScope(String scope) { this.scope = scope; }
+    }
+
+    /**
+     * Тело запроса с режимом отображения очередей: TODAY или ALL.
+     */
+    public static class QueueScopeRequest {
+        private String scope;
+
+        public String getScope() { return scope; }
+        public void setScope(String scope) { this.scope = scope; }
     }
 
     /**
