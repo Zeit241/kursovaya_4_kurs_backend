@@ -402,11 +402,14 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
      *
      * @return [doctorId, displayName, status, count]
      */
-    @Query("SELECT d.id, d.displayName, a.status, COUNT(a) FROM Appointment a " +
+    @Query("SELECT d.id, " +
+           "TRIM(CONCAT(COALESCE(u.lastName, ''), CONCAT(' ', CONCAT(COALESCE(u.firstName, ''), CONCAT(' ', COALESCE(u.middleName, ''))))))," +
+           "a.status, COUNT(a) FROM Appointment a " +
            "JOIN a.doctor d " +
+           "LEFT JOIN d.user u " +
            "WHERE a.startTime >= :startDate AND a.startTime < :endDate " +
            "AND a.patient IS NOT NULL " +
-           "GROUP BY d.id, d.displayName, a.status")
+           "GROUP BY d.id, u.lastName, u.firstName, u.middleName, a.status")
     List<Object[]> countByDoctorAndStatusAndDateRange(@Param("startDate") OffsetDateTime startDate,
                                                       @Param("endDate") OffsetDateTime endDate);
 
