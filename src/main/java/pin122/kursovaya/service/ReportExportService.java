@@ -7,11 +7,11 @@ import com.itextpdf.kernel.font.PdfFontFactory;
 import com.itextpdf.kernel.geom.PageSize;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfWriter;
-import com.itextpdf.io.font.constants.StandardFonts;
 import com.itextpdf.layout.Document;
 import com.itextpdf.layout.element.Cell;
 import com.itextpdf.layout.element.Paragraph;
 import com.itextpdf.layout.element.Table;
+import com.itextpdf.layout.properties.BorderCollapsePropertyValue;
 import com.itextpdf.layout.properties.TextAlignment;
 import com.itextpdf.layout.properties.UnitValue;
 import org.apache.poi.ss.usermodel.*;
@@ -181,18 +181,19 @@ public class ReportExportService {
 
             document.add(statsTable);
 
-            // Таблица данных
-            float[] columnWidths = {3, 6, 6, 10, 7, 10, 5, 4, 6, 8, 3, 8, 8, 8, 10};
+            // Компактная таблица: фиксированные колонки без "разъезда" в PDF.
+            float[] columnWidths = {5, 16, 16, 10, 10, 9, 10};
             Table dataTable = new Table(UnitValue.createPercentArray(columnWidths))
-                    .setWidth(UnitValue.createPercentValue(100));
+                    .setWidth(UnitValue.createPercentValue(100))
+                    .setBorderCollapse(BorderCollapsePropertyValue.SEPARATE);
 
             // Заголовки
-            String[] headers = {"№", "Время", "Статус", "Пациент", "Телефон", "Email",
-                    "Дата рожд.", "Пол", "Полис", "Врач", "Каб.", "Диагноз", "Жалобы", "Анамнез", "Реком."};
+            String[] headers = {"№", "Дата и время", "Врач", "Пациент", "Телефон", "Статус", "Диагноз"};
             for (String header : headers) {
                 Cell cell = new Cell()
-                        .add(new Paragraph(header).setFontSize(8).setBold())
+                        .add(new Paragraph(header).setFont(font).setFontSize(9).setBold())
                         .setBackgroundColor(ColorConstants.LIGHT_GRAY)
+                        .setPadding(4)
                         .setTextAlignment(TextAlignment.CENTER);
                 dataTable.addHeaderCell(cell);
             }
@@ -201,21 +202,12 @@ public class ReportExportService {
             int num = 1;
             for (ReportAppointmentDto appointment : report.getAppointments()) {
                 addDataCell(dataTable, String.valueOf(num++), font);
-                addDataCell(dataTable, formatTimeRange(appointment), font);
+                addDataCell(dataTable, formatDateTimeRange(appointment), font);
+                addDataCell(dataTable, crop(appointment.getDoctorDisplayName(), 38), font);
+                addDataCell(dataTable, crop(appointment.getPatientFullName(), 38), font);
+                addDataCell(dataTable, crop(appointment.getPatientPhone(), 22), font);
                 addDataCell(dataTable, translateStatus(appointment.getStatus()), font);
-                addDataCell(dataTable, appointment.getPatientFullName(), font);
-                addDataCell(dataTable, appointment.getPatientPhone(), font);
-                addDataCell(dataTable, appointment.getPatientEmail(), font);
-                addDataCell(dataTable, appointment.getPatientBirthDate() != null ?
-                        appointment.getPatientBirthDate().format(DATE_FORMATTER) : "", font);
-                addDataCell(dataTable, appointment.getPatientGender(), font);
-                addDataCell(dataTable, appointment.getPatientInsuranceNumber(), font);
-                addDataCell(dataTable, appointment.getDoctorDisplayName(), font);
-                addDataCell(dataTable, appointment.getRoomNumber(), font);
-                addDataCell(dataTable, appointment.getDiagnosis(), font);
-                addDataCell(dataTable, appointment.getComplaints(), font);
-                addDataCell(dataTable, appointment.getAnamnesis(), font);
-                addDataCell(dataTable, appointment.getRecommendations(), font);
+                addDataCell(dataTable, crop(appointment.getDiagnosis(), 44), font);
             }
 
             document.add(dataTable);
@@ -503,9 +495,39 @@ public class ReportExportService {
      */
     private void addDataCell(Table table, String value, PdfFont font) {
         Cell cell = new Cell()
-                .add(new Paragraph(value != null ? value : "").setFont(font).setFontSize(7))
-                .setTextAlignment(TextAlignment.CENTER);
+                .add(new Paragraph(value != null ? value : "")
+                        .setFont(font)
+                        .setFontSize(8)
+                        .setMultipliedLeading(1.1f))
+                .setPadding(3)
+                .setTextAlignment(TextAlignment.LEFT);
         table.addCell(cell);
+    }
+
+    /**
+     * Формирует строку "дата и время" для отчётной таблицы.
+     */
+    private String formatDateTimeRange(ReportAppointmentDto appointment) {
+        if (appointment.getStartTime() == null) {
+            return "";
+        }
+        String day = appointment.getStartTime().format(DATE_FORMATTER);
+        String time = formatTimeRange(appointment);
+        return day + " " + time;
+    }
+
+    /**
+     * Обрезает длинные значения в ячейках, чтобы таблица не ломала вёрстку.
+     */
+    private String crop(String value, int limit) {
+        if (value == null) {
+            return "";
+        }
+        String normalized = value.replaceAll("\\s+", " ").trim();
+        if (normalized.length() <= limit) {
+            return normalized;
+        }
+        return normalized.substring(0, Math.max(0, limit - 1)) + "…";
     }
 
     /**
@@ -547,8 +569,14 @@ public class ReportExportService {
      */
     private PdfFont createPdfFont() throws IOException {
         String[] candidateFonts = new String[] {
+                "C:/Windows/Fonts/arial.ttf",
                 "c:/windows/fonts/arial.ttf",
+                "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans.ttf",
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+                "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+                "/usr/share/fonts/opentype/noto/NotoSans-Regular.ttf",
                 "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
                 "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
         };
@@ -561,7 +589,7 @@ public class ReportExportService {
                 );
             }
         }
-        return PdfFontFactory.createFont(StandardFonts.HELVETICA);
+        throw new IOException("Не найден системный TTF-шрифт с поддержкой кириллицы для генерации PDF");
     }
 }
 
