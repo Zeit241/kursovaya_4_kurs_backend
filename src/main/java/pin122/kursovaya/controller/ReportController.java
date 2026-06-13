@@ -17,6 +17,7 @@ import pin122.kursovaya.repository.UserRepository;
 import pin122.kursovaya.service.AnalyticsService;
 import pin122.kursovaya.service.ReportExportService;
 import pin122.kursovaya.service.ReportService;
+import pin122.kursovaya.utils.ApiResponse;
 
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -214,7 +215,11 @@ public class ReportController {
             return ResponseEntity.badRequest().body(Map.of("error", "Дата начала не может быть позже даты окончания."));
         }
         FinancialStatsDto stats = analyticsService.getFinancialStats(startDate, endDate);
-        return ResponseEntity.ok(stats);
+        return ResponseEntity.ok(new ApiResponse<>(
+                "Финансовая статистика получена",
+                200,
+                stats
+        ));
     }
 
     /**
@@ -232,7 +237,11 @@ public class ReportController {
             return ResponseEntity.badRequest().body(Map.of("error", "Дата начала не может быть позже даты окончания."));
         }
         AttendanceDynamicsDto dynamics = analyticsService.getAttendanceDynamics(startDate, endDate);
-        return ResponseEntity.ok(dynamics);
+        return ResponseEntity.ok(new ApiResponse<>(
+                "Динамика посещаемости получена",
+                200,
+                dynamics
+        ));
     }
 
     // ==================== ЭКСПОРТ В ФАЙЛЫ ====================

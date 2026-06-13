@@ -278,7 +278,21 @@ public class ReportService {
         dto.setStartTime(appointment.getStartTime());
         dto.setEndTime(appointment.getEndTime());
         dto.setStatus(appointment.getStatus());
-        dto.setDiagnosis(appointment.getDiagnosis() != null ? appointment.getDiagnosis().getCode() : null);
+        if (appointment.getDiagnosis() != null) {
+            String code = appointment.getDiagnosis().getCode();
+            String name = appointment.getDiagnosis().getName();
+            if (name != null && !name.isBlank()) {
+                if (code != null && !code.isBlank()) {
+                    dto.setDiagnosis(name + " (" + code + ")");
+                } else {
+                    dto.setDiagnosis(name);
+                }
+            } else {
+                dto.setDiagnosis(code);
+            }
+        } else {
+            dto.setDiagnosis(null);
+        }
         dto.setCancelReason(appointment.getCancelReason());
         dto.setComplaints(appointment.getComplaints());
         dto.setAnamnesis(appointment.getAnamnesis());

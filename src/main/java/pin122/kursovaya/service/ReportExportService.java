@@ -7,6 +7,7 @@ import com.itextpdf.kernel.font.PdfFontFactory;
 import com.itextpdf.kernel.geom.PageSize;
 import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfWriter;
+import com.itextpdf.io.font.constants.StandardFonts;
 import com.itextpdf.layout.Document;
 import com.itextpdf.layout.element.Cell;
 import com.itextpdf.layout.element.Paragraph;
@@ -23,6 +24,8 @@ import pin122.kursovaya.model.Appointment;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
 
 /**
@@ -150,11 +153,7 @@ public class ReportExportService {
             Document document = new Document(pdfDoc);
 
             // Шрифт с поддержкой кириллицы
-            PdfFont font = PdfFontFactory.createFont(
-                "c:/windows/fonts/arial.ttf", 
-                PdfEncodings.IDENTITY_H, 
-                PdfFontFactory.EmbeddingStrategy.PREFER_EMBEDDED
-            );
+            PdfFont font = createPdfFont();
             document.setFont(font);
 
             // Заголовок
@@ -249,11 +248,7 @@ public class ReportExportService {
             Document document = new Document(pdfDoc);
 
             // Шрифт с поддержкой кириллицы
-            PdfFont font = PdfFontFactory.createFont(
-                "c:/windows/fonts/arial.ttf", 
-                PdfEncodings.IDENTITY_H, 
-                PdfFontFactory.EmbeddingStrategy.PREFER_EMBEDDED
-            );
+            PdfFont font = createPdfFont();
             document.setFont(font);
 
             // Заголовок
@@ -543,6 +538,30 @@ public class ReportExportService {
             case "no_show" -> "Неявка";
             default -> status;
         };
+    }
+
+    /**
+     * Подбирает шрифт с поддержкой кириллицы для разных ОС.
+     * Если системные TTF недоступны, используется встроенный шрифт iText,
+     * чтобы не падать с HTTP 500 при генерации PDF.
+     */
+    private PdfFont createPdfFont() throws IOException {
+        String[] candidateFonts = new String[] {
+                "c:/windows/fonts/arial.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+        };
+        for (String fontPath : candidateFonts) {
+            if (Files.exists(Path.of(fontPath))) {
+                return PdfFontFactory.createFont(
+                        fontPath,
+                        PdfEncodings.IDENTITY_H,
+                        PdfFontFactory.EmbeddingStrategy.PREFER_EMBEDDED
+                );
+            }
+        }
+        return PdfFontFactory.createFont(StandardFonts.HELVETICA);
     }
 }
 
