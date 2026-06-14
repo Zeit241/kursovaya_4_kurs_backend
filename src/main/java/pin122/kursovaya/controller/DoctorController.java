@@ -96,10 +96,15 @@ public class DoctorController {
      */
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<DoctorDto>> updateDoctor(@PathVariable Long id, @Valid @RequestBody UpdateDoctorRequest request) {
-        return doctorService.updateDoctor(id, request)
-                .map(updated -> ResponseEntity.ok(new ApiResponse<>(true, "Врач успешно обновлён", updated)))
-                .orElse(ResponseEntity.status(404)
-                        .body(new ApiResponse<>(false, "Врач не найден", null)));
+        try {
+            return doctorService.updateDoctor(id, request)
+                    .map(updated -> ResponseEntity.ok(new ApiResponse<>(true, "Врач успешно обновлён", updated)))
+                    .orElse(ResponseEntity.status(404)
+                            .body(new ApiResponse<>(false, "Врач не найден", null)));
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(409)
+                    .body(new ApiResponse<>(false, ex.getMessage(), null));
+        }
     }
 
     /**

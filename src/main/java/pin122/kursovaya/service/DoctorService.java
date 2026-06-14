@@ -453,10 +453,20 @@ public class DoctorService {
         // Обновляем данные пользователя, если они переданы
         if (request.getUser() != null) {
             if (request.getUser().getEmail() != null) {
+                String nextEmail = request.getUser().getEmail().trim();
+                if (!nextEmail.equalsIgnoreCase(user.getEmail())
+                        && userRepository.existsByEmailAndIdNot(nextEmail, user.getId())) {
+                    throw new IllegalStateException("Пользователь с таким email уже существует.");
+                }
                 user.setEmail(request.getUser().getEmail());
             }
             if (request.getUser().getPhone() != null) {
-                user.setPhone(FormatUtils.normalizePhone(request.getUser().getPhone()));
+                String normalizedPhone = FormatUtils.normalizePhone(request.getUser().getPhone());
+                if (normalizedPhone != null
+                        && userRepository.existsByPhoneAndIdNot(normalizedPhone, user.getId())) {
+                    throw new IllegalStateException("Пользователь с таким телефоном уже существует.");
+                }
+                user.setPhone(normalizedPhone);
             }
             if (request.getUser().getFirstName() != null) {
                 user.setFirstName(request.getUser().getFirstName());

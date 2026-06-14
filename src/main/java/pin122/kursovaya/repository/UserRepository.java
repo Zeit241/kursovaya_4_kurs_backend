@@ -49,4 +49,22 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * @return контейнер с пользователем, если найден совпадающий email или телефон; иначе пустой {@link Optional}
      */
     Optional<User> findByEmailOrPhone(String email, String phone);
+
+    /**
+     * Проверяет наличие другого пользователя с тем же телефоном.
+     *
+     * @param phone номер телефона
+     * @param id    идентификатор текущего пользователя, который нужно исключить из проверки
+     * @return {@code true}, если найден пользователь с таким телефоном и другим id
+     */
+    boolean existsByPhoneAndIdNot(String phone, Long id);
+
+    /**
+     * Проверяет наличие другого пользователя с тем же email.
+     *
+     * @param email адрес электронной почты
+     * @param id    идентификатор текущего пользователя, который нужно исключить из проверки
+     * @return {@code true}, если найден пользователь с таким email и другим id
+     */
+    boolean existsByEmailAndIdNot(String email, Long id);
 }
