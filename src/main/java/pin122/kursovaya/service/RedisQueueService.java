@@ -21,8 +21,10 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -858,13 +860,21 @@ public class RedisQueueService {
         OffsetDateTime now = OffsetDateTime.now();
         LocalDate today = LocalDate.now();
         QueueScopeMode effectiveMode = mode == null ? QueueScopeMode.ALL : mode;
-
-        return appointments.stream()
+        Map<Long, Appointment> nearestByDoctor = appointments.stream()
+                .filter(a -> a.getDoctor() != null)
                 .filter(a -> isActiveQueueAppointment(a, queueDateFromStart(a.getStartTime()), now))
                 .filter(a -> effectiveMode == QueueScopeMode.ALL || today.equals(queueDateFromStart(a.getStartTime())))
-                .map(a -> {
-                    Long doctorId = a.getDoctor().getId();
-                    LocalDate qd = queueDateFromStart(a.getStartTime());
+                .collect(Collectors.toMap(
+                        a -> a.getDoctor().getId(),
+                        a -> a,
+                        (a1, a2) -> a1.getStartTime().isBefore(a2.getStartTime()) ? a1 : a2
+                ));
+
+        return nearestByDoctor.values().stream()
+                .sorted(Comparator.comparing(Appointment::getStartTime))
+                .map(appointment -> {
+                    Long doctorId = appointment.getDoctor().getId();
+                    LocalDate qd = queueDateFromStart(appointment.getStartTime());
                     Integer position = getPatientPosition(patientId, doctorId, qd);
                     if (position == null) {
                         recalculateQueueForDoctor(doctorId, qd, false);
@@ -873,10 +883,14 @@ public class RedisQueueService {
                     if (position == null) {
                         return null;
                     }
-                    return getQueueByDoctor(doctorId, qd).stream()
+                    QueueEntryDto dto = getQueueByDoctor(doctorId, qd).stream()
                             .filter(e -> patientId.equals(e.getPatientId()))
                             .findFirst()
                             .orElse(null);
+                    if (dto != null) {
+                        dto.setAppointmentId(appointment.getId());
+                    }
+                    return dto;
                 })
                 .filter(e -> e != null)
                 .collect(Collectors.toList());
@@ -1014,6 +1028,7 @@ public class RedisQueueService {
                 .filter(a -> a.getStartTime() != null)
                 .filter(a -> !a.getStartTime().isBefore(startOfDay) && a.getStartTime().isBefore(endOfDay))
                 .filter(a -> !isTerminalStatus(a.getStatus()))
+                .sorted(Comparator.comparing(Appointment::getStartTime))
                 .findFirst()
                 .orElse(null);
     }

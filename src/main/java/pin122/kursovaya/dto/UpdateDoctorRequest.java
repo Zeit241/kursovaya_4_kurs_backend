@@ -18,7 +18,6 @@ public class UpdateDoctorRequest {
     /** Устарело: не сохраняется в БД; меняйте ФИО в блоке user. */
     private String displayName;
     
-    @Size(max = 50, message = "Описание должно содержать до 50 символов")
     private String bio;
     
     @Min(value = 0, message = "Опыт не может быть меньше 0")
