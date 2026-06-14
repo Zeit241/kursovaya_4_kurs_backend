@@ -462,7 +462,11 @@ public class DoctorService {
             }
             if (request.getUser().getPhone() != null) {
                 String normalizedPhone = FormatUtils.normalizePhone(request.getUser().getPhone());
-                if (normalizedPhone != null
+                String currentNormalizedPhone = FormatUtils.normalizePhone(user.getPhone());
+                boolean phoneChanged = (normalizedPhone == null && currentNormalizedPhone != null)
+                        || (normalizedPhone != null && !normalizedPhone.equals(currentNormalizedPhone));
+                if (phoneChanged
+                        && normalizedPhone != null
                         && userRepository.existsByPhoneAndIdNot(normalizedPhone, user.getId())) {
                     throw new IllegalStateException("Пользователь с таким телефоном уже существует.");
                 }
