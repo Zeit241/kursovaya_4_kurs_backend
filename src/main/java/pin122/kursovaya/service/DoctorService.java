@@ -470,7 +470,11 @@ public class DoctorService {
                         && userRepository.existsByPhoneAndIdNot(normalizedPhone, user.getId())) {
                     throw new IllegalStateException("Пользователь с таким телефоном уже существует.");
                 }
-                user.setPhone(normalizedPhone);
+                // Если номер по сути не изменился (только формат), не перезаписываем поле,
+                // чтобы не спровоцировать конфликт уникальности при "докручивании" формата.
+                if (phoneChanged) {
+                    user.setPhone(normalizedPhone);
+                }
             }
             if (request.getUser().getFirstName() != null) {
                 user.setFirstName(request.getUser().getFirstName());
